@@ -28,8 +28,7 @@ pnpm fork:status          # or: node tools/fork/reconcile.mjs status
 | `readme-fork`, `fork-notes`, `desktop-guide` | Documentation of the fork. |
 | `desktop-restore` | The Electron desktop client (`apps/kimi-desktop`), its release workflow, and the pkgforge AppImage packaging. |
 | `deps-stable` | CI actions and dev tooling on current stable. |
-| `fork-tooling` | `tools/fork/*` and this document. |
-| `desktop-hardening` | Reconnect serialisation and space-free installer names. |
+| `fork-tooling` | Reconciliation tooling, release guards, fork docs and desktop hardening. |
 | `thinking-detail-test` | Regression test for the TUI thinking-detail patch. |
 
 The authoritative list, with the upstream assumptions each patch relies on

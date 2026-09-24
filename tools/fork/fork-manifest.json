@@ -66,16 +66,9 @@
     },
     {
       "id": "fork-tooling",
-      "match": "reconciliation tooling, release guards",
-      "title": "Fork: reconciliation tooling and release guards",
-      "purpose": "tools/fork/* plus MAINTAIN_AGENTS.md: detect upstream drift, validate artifacts, verify releases.",
-      "anchors": []
-    },
-    {
-      "id": "desktop-hardening",
-      "match": "avoid a reconnect race",
-      "title": "Desktop: reconnect serialisation and artifact naming",
-      "purpose": "Serialise connect attempts and name desktop installers without spaces.",
+      "match": "(fork)",
+      "title": "Fork infrastructure",
+      "purpose": "Reconciliation tooling, release guards, fork docs and desktop hardening.",
       "anchors": []
     },
     {

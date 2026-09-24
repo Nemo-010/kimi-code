@@ -72,9 +72,9 @@ function ensureUpstreamRemote() {
   const existing = git(['remote'], { allowFail: true }) ?? '';
   if (!existing.split('\n').includes(remote)) {
     git(['remote', 'add', remote, url]);
-    return { added: true, fetched: false };
+    return true;
   }
-  return { added: false, fetched: false };
+  return false;
 }
 
 function fetchUpstream() {
@@ -362,6 +362,7 @@ function verify() {
     ['pnpm run typecheck', ['pnpm', ['run', 'typecheck']]],
     ['pnpm run lint', ['pnpm', ['run', 'lint']]],
     ['pnpm run sherif', ['pnpm', ['run', 'sherif']]],
+    ['pnpm -C apps/kimi-desktop run test', ['pnpm', ['-C', 'apps/kimi-desktop', 'run', 'test']]],
   ];
   let failed = false;
   for (const [label, [cmd, args]] of steps) {
@@ -386,7 +387,7 @@ Commands:
   status        (default) compare the fork against an upstream ref
   diff          show upstream changes to files a fork patch owns
   rebase        back up the branch and rebase onto an upstream ref
-  verify        run install/typecheck/lint/sherif locally
+  verify        run install/typecheck/lint/sherif + desktop tests locally
 
 Options:
   -u, --upstream <ref>  upstream branch/tag/commit (default ${MANIFEST.upstream.defaultRef})
@@ -410,8 +411,8 @@ function main() {
     return;
   }
   if (!existsSync(join(REPO, '.git'))) throw new Error(`Not a git checkout: ${REPO}`);
-  const remote = ensureUpstreamRemote();
-  if (remote.added) console.log(dim(`Added git remote '${MANIFEST.upstream.remote}' -> ${MANIFEST.upstream.url}`));
+  const remoteAdded = ensureUpstreamRemote();
+  if (remoteAdded) console.log(dim(`Added git remote '${MANIFEST.upstream.remote}' -> ${MANIFEST.upstream.url}`));
   if (options.fetch) fetchUpstream();
 
   switch (options.command) {
