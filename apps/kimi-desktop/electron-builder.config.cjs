@@ -45,13 +45,13 @@ module.exports = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
     target: ['dmg', 'zip'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
     notarize,
   },
 
   win: {
     target: ['nsis'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
   },
 
   nsis: {
@@ -66,7 +66,7 @@ module.exports = {
     // `--dir` output (see packaging/appimage), so electron-builder only makes
     // the .deb here.
     target: ['deb'],
-    artifactName: '${productName}-${version}-${arch}.${ext}',
+    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
     maintainer: 'Moonshot AI',
   },
 };

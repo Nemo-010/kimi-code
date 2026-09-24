@@ -131,17 +131,16 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
           fi
-          files=$(find dist-release -type f \( \
+          mapfile -d '' files < <(find dist-release -type f \( \
             -name '*.zip' -o -name '*.zip.sha256' \
             -o -name '*.dmg' -o -name '*.exe' -o -name '*.deb' \
-            -o -name '*.AppImage' \) | sort)
-          printf '%s\n' "$files"
-          clobber=""
+            -o -name '*.AppImage' \) -print0 | sort -z)
+          printf '%s\n' "${files[@]}"
+          args=()
           if [ "$RELEASE_TAG" = "continuous" ] || [ "$ALLOW_OVERWRITE" = "true" ]; then
-            clobber="--clobber"
+            args+=(--clobber)
           fi
-          # shellcheck disable=SC2086
-          gh release upload "$RELEASE_TAG" $files $clobber
+          gh release upload "$RELEASE_TAG" "${files[@]}" "${args[@]}"
 
       - name: Ensure a dummy display for the GUI smoke test
         if: ${{ inputs.verify }}

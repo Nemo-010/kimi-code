@@ -10,6 +10,8 @@ import { resolveSeaPath } from './sea-path';
 let mainWindow: BrowserWindow | null = null;
 /** Server started by this process, reaped on quit. Reused servers stay alive. */
 let spawnedChild: import('node:child_process').ChildProcess | undefined;
+/** Guards against overlapping connect attempts (e.g. retry spam). */
+let connecting = false;
 
 // --- window state persistence -------------------------------------------------
 
@@ -119,31 +121,37 @@ function readServerToken(): string | undefined {
 // --- connect flow -------------------------------------------------------------
 
 async function connect(win: BrowserWindow): Promise<void> {
-  // A retry must not leave the previous attempt's server behind.
-  stopServer(spawnedChild);
-  spawnedChild = undefined;
-  await win.loadURL(dataUrl(loadingHtml()));
+  if (connecting) return;
+  connecting = true;
   try {
-    const { origin, child } = await ensureServer(resolveSeaPath());
-    spawnedChild = child;
-    process.stdout.write(`[kimi-desktop] connected to ${origin}\n`);
-    if (!win.isDestroyed()) {
-      // Append a desktop marker so the web UI shows the internal-build banner
-      // even when it is served by an already-running shared daemon (the desktop
-      // reuses the local daemon rather than starting a private one). Carry the
-      // server token in the `#token=` fragment — like `kimi web` does — so the
-      // web UI can authenticate without falling into the manual token dialog on
-      // a fresh launch.
-      const token = readServerToken();
-      const fragment = token === undefined ? '' : `#token=${encodeURIComponent(token)}`;
-      await win.loadURL(`${origin}/?kimi_desktop=1&platform=${process.platform}${fragment}`);
+    // A retry must not leave the previous attempt's server behind.
+    stopServer(spawnedChild);
+    spawnedChild = undefined;
+    await win.loadURL(dataUrl(loadingHtml()));
+    try {
+      const { origin, child } = await ensureServer(resolveSeaPath());
+      spawnedChild = child;
+      process.stdout.write(`[kimi-desktop] connected to ${origin}\n`);
+      if (!win.isDestroyed()) {
+        // Append a desktop marker so the web UI shows the internal-build banner
+        // even when it is served by an already-running shared daemon (the desktop
+        // reuses the local daemon rather than starting a private one). Carry the
+        // server token in the `#token=` fragment — like `kimi web` does — so the
+        // web UI can authenticate without falling into the manual token dialog on
+        // a fresh launch.
+        const token = readServerToken();
+        const fragment = token === undefined ? '' : `#token=${encodeURIComponent(token)}`;
+        await win.loadURL(`${origin}/?kimi_desktop=1&platform=${process.platform}${fragment}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[kimi-desktop] ensureServer failed: ${message}\n`);
+      if (!win.isDestroyed()) {
+        await win.loadURL(dataUrl(errorHtml(message)));
+      }
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`[kimi-desktop] ensureServer failed: ${message}\n`);
-    if (!win.isDestroyed()) {
-      await win.loadURL(dataUrl(errorHtml(message)));
-    }
+  } finally {
+    connecting = false;
   }
 }
 

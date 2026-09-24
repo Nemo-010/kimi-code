@@ -26,7 +26,7 @@ export function expectedAssets() {
 }
 
 export function desktopInstallerPattern() {
-  return /^Kimi Code Desktop-.+\.(dmg|zip|exe|deb)$/;
+  return /^Kimi-Code-Desktop-.+\.(dmg|zip|exe|deb)$/;
 }
 
 export function hostAppImageArch(arch = process.arch) {

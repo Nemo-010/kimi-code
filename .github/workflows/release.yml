@@ -160,10 +160,10 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
         run: |
           set -euo pipefail
-          files=$(find dist-desktop-release dist-appimage-release -type f \( \
-            -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) | sort)
-          printf '%s\n' "$files"
-          gh release upload "$RELEASE_TAG" $files --clobber
+          mapfile -d '' files < <(find dist-desktop-release dist-appimage-release -type f \( \
+            -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) -print0 | sort -z)
+          printf '%s\n' "${files[@]}"
+          gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
 
   publish-native-assets:
     name: Publish native release assets
