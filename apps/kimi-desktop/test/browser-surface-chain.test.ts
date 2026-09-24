@@ -93,7 +93,11 @@ describe('engine operation -> renderer surface', () => {
     await expect(
       Promise.race([
         surface.capture(),
-        new Promise((_r, reject) => setTimeout(() => reject(new Error('timed out')), 40_000)),
+        new Promise((_r, reject) => {
+          setTimeout(() => {
+            reject(new Error('timed out'));
+          }, 40_000);
+        }),
       ]),
     ).rejects.toThrow();
   }, 45_000);

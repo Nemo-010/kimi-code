@@ -115,7 +115,7 @@ describe('the Browser panel can read what this server returns', () => {
   it('is the tool the panel matches on', () => {
     // `f4` in the bundle is this exact string, and `l1(e)` compares by name.
     expect(MCP_TOOL_NAME).toBe('run');
-    expect(`${'mcp'}__desktop_browser__${MCP_TOOL_NAME}`).toBe(PANEL_TOOL_NAME);
+    expect(`mcp__desktop_browser__${MCP_TOOL_NAME}`).toBe(PANEL_TOOL_NAME);
   });
 
   it('carries a protocol the panel accepts in the call arguments', () => {

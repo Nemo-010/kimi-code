@@ -78,7 +78,9 @@ function readBody(request: IncomingMessage): Promise<string> {
         request.destroy();
       }
     });
-    request.on('end', () => resolve(body));
+    request.on('end', () => {
+      resolve(body);
+    });
     request.on('error', reject);
   });
 }

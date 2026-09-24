@@ -71,26 +71,28 @@ export async function registerBrowserMcpWithServer(options: {
   readonly fetchImpl?: typeof fetch;
 }): Promise<boolean> {
   const doFetch = options.fetchImpl ?? fetch;
+  const headers = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${options.credential}`,
+  };
   try {
-    const response = await doFetch(`${options.origin}/api/v1/mcp/servers`, {
+    const added = await doFetch(`${options.origin}/api/v1/mcp/servers`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${options.credential}`,
-      },
+      headers,
       body: JSON.stringify({ name: MCP_SERVER_NAME, ...browserEntry(options.url, options.token) }),
     });
-    if (response.ok) return true;
-    // 400 means the name is already there, which is the normal case on a second
-    // launch: the endpoint is new, so the entry still needs updating.
-    return doFetch(`${options.origin}/api/v1/mcp/servers/${encodeURIComponent(MCP_SERVER_NAME)}`, {
-      method: 'PUT',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${options.credential}`,
+    if (added.ok) return true;
+    // The name is already present, which is the normal case on a second launch:
+    // the endpoint is new every time, so the entry still needs updating.
+    const updated = await doFetch(
+      `${options.origin}/api/v1/mcp/servers/${encodeURIComponent(MCP_SERVER_NAME)}`,
+      {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(browserEntry(options.url, options.token)),
       },
-      body: JSON.stringify(browserEntry(options.url, options.token)),
-    }).then((updated) => updated.ok);
+    );
+    return updated.ok;
   } catch {
     // No daemon yet, or it is still starting: the file write still stands, and
     // a later launch will reach it.
@@ -123,9 +125,7 @@ export function registerBrowserMcp(options: RegisterBrowserOptions): void {
 
   const existing = document.mcpServers;
   const servers: Record<string, unknown> =
-    typeof existing === 'object' && existing !== null && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
-      : {};
+    typeof existing === 'object' && existing !== null && !Array.isArray(existing) ? { ...existing } : {};
 
   const current = servers[MCP_SERVER_NAME];
   const managed =
@@ -161,7 +161,7 @@ export function unregisterBrowserMcp(kimiHome: string): void {
   }
   const servers = document.mcpServers;
   if (typeof servers !== 'object' || servers === null) return;
-  const current = (servers as Record<string, unknown>)[MCP_SERVER_NAME];
+  const current = servers[MCP_SERVER_NAME];
   if (
     typeof current !== 'object' ||
     current === null ||
@@ -169,7 +169,7 @@ export function unregisterBrowserMcp(kimiHome: string): void {
   ) {
     return;
   }
-  const next = { ...(servers as Record<string, unknown>) };
+  const next = { ...servers };
   delete next[MCP_SERVER_NAME];
   // Write an empty file rather than deleting: the update lands immediately and
   // a reader that races this cannot resurrect the old endpoint.

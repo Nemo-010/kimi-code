@@ -471,7 +471,9 @@ export class TerminalPanel {
         'cursor:pointer',
         tab.id === this.activeId ? 'background:#27272a' : '',
       ].join(';');
-      button.addEventListener('click', () => this.select(tab.id));
+      button.addEventListener('click', () => {
+        this.select(tab.id);
+      });
       this.tabBar.append(button);
     }
 
@@ -491,7 +493,9 @@ export class TerminalPanel {
     closeButton.textContent = 'Close';
     closeButton.style.cssText =
       'margin-left:auto;background:transparent;border:1px solid #27272a;border-radius:4px;color:inherit;font:inherit;padding:2px 8px;cursor:pointer';
-    closeButton.addEventListener('click', () => this.hide());
+    closeButton.addEventListener('click', () => {
+      this.hide();
+    });
     this.tabBar.append(closeButton);
   }
 
@@ -604,7 +608,9 @@ export class TerminalPanel {
     });
     this.onWindowResize = () => {
       if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer);
-      this.resizeTimer = window.setTimeout(() => this.refit(), 120);
+      this.resizeTimer = window.setTimeout(() => {
+        this.refit();
+      }, 120);
     };
     window.addEventListener('resize', this.onWindowResize);
   }

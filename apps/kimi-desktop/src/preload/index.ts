@@ -415,13 +415,17 @@ const kimiDesktop = {
     }
   },
   /** Record that onboarding finished, so a fresh profile does not see it again. */
-  setOnboarded: (): void => send('kimi-desktop:onboarded', {}),
+  setOnboarded: (): void => {
+    send('kimi-desktop:onboarded', {});
+  },
   setTheme: (theme: unknown): boolean => kimiBrowser.setTheme(theme),
   /** Open or close the Terminal panel; bound to Ctrl/Cmd+` in the main process. */
   toggleTerminal: (): void => {
     ipcRenderer.send('kimi-terminal:toggle-request', {});
   },
-  showWindow: (): void => send('kimi-desktop:show-window', {}),
+  showWindow: (): void => {
+    send('kimi-desktop:show-window', {});
+  },
   onMenuAction: (callback: unknown): (() => void) => {
     if (typeof callback !== 'function') return () => undefined;
     const listener = (_event: IpcRendererEvent, action: unknown): void => {

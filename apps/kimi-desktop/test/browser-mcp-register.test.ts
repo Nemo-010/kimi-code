@@ -40,7 +40,8 @@ describe('desktop_browser MCP registration', () => {
     const calls: { method: string; url: string; body: string; auth: string }[] = [];
     const fetchImpl = (url: string, init: RequestInit = {}): Promise<Response> => {
       const headers = (init.headers ?? {}) as Record<string, string>;
-      calls.push({ method: init.method ?? 'GET', url, body: String(init.body ?? ''), auth: headers['authorization'] ?? '' });
+      const body = typeof init.body === 'string' ? init.body : '';
+      calls.push({ method: init.method ?? 'GET', url, body, auth: headers['authorization'] ?? '' });
       return Promise.resolve({ ok: true } as Response);
     };
     const registered = await registerBrowserMcpWithServer({

@@ -259,6 +259,18 @@ export class BrowserEngine {
     return this.host.surfaces().find((s) => s.id === tabId);
   }
 
+  /**
+   * Message for an operation that reached a switch it does not belong to.
+   *
+   * The switches are exhaustive over `BrowserOperation`, so the value here has
+   * been narrowed to `never`; it is reported from the raw request because that
+   * is what an untrusted caller actually sent.
+   */
+  private static unsupported(request: BrowserRequest): string {
+    const operation: unknown = request.operation;
+    return `Unsupported operation: ${typeof operation === 'string' ? operation : typeof operation}`;
+  }
+
   /** Read a `{x, y}` point, or null when the request does not carry one. */
   private point(value: unknown): { x: number; y: number } | null {
     if (typeof value !== 'object' || value === null) return null;
@@ -510,7 +522,7 @@ export class BrowserEngine {
         return this.elementAction(operation, request);
 
       default:
-        return browserError('INVALID_REQUEST', `Unsupported operation: ${String(operation)}`);
+        return browserError('INVALID_REQUEST', BrowserEngine.unsupported(request));
     }
   }
 
@@ -704,7 +716,7 @@ export class BrowserEngine {
         return browserOk({ from, to });
       }
       default:
-        return browserError('INVALID_REQUEST', `Unsupported operation: ${String(operation)}`);
+        return browserError('INVALID_REQUEST', BrowserEngine.unsupported(request));
     }
   }
 

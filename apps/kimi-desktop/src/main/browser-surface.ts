@@ -70,7 +70,9 @@ export class RemoteBrowserSurface implements BrowserSurface {
       return (await Promise.race([
         this.transport.request(this.id, request),
         new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('The window did not answer in time.')), REQUEST_TIMEOUT_MS);
+          timer = setTimeout(() => {
+            reject(new Error('The window did not answer in time.'));
+          }, REQUEST_TIMEOUT_MS);
         }),
       ])) as T;
     } finally {
