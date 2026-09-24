@@ -165,6 +165,13 @@ sha256sum -c kimi-code-linux-x64.zip.sha256
 Other platforms are produced by the upstream native-bundle workflow; this fork
 publishes only what it builds.
 
+## Re-adding the desktop app
+
+Upstream removed the Electron desktop client in
+[#1849](https://github.com/MoonshotAI/kimi-code/pull/1849). See
+[KIMI_DESKTOP.md](./KIMI_DESKTOP.md) for a full reconstruction guide, including
+the four places the removed code no longer matches this tree.
+
 ## License
 
 MIT, unchanged from upstream. See [LICENSE](LICENSE).
