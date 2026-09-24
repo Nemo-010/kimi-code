@@ -42,6 +42,21 @@ export function desktopAssetsByPlatform(names) {
   }));
 }
 
+/**
+ * Desktop artifacts that match no platform at all — for example the old
+ * `Kimi-Code-Desktop-2.1.0-x64.zip`, which was the macOS auto-update zip and
+ * looked like a Linux build. These are leftovers from an earlier naming scheme
+ * and must not stay on a release.
+ */
+export function unexpectedDesktopAssets(names) {
+  return names.filter(
+    (name) =>
+      name.startsWith('Kimi-Code-Desktop-') &&
+      !name.endsWith('.AppImage') &&
+      !DESKTOP_PLATFORMS.some((platform) => platform.pattern.test(name)),
+  );
+}
+
 export function hostAppImageArch(arch = process.arch) {
   return arch === 'arm64' ? 'aarch64' : 'x86_64';
 }

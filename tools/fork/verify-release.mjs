@@ -23,6 +23,7 @@ import {
   desktopAssetsByPlatform,
   expectedAssets,
   hostAppImageArch,
+  unexpectedDesktopAssets,
 } from './release-assets.mjs';
 
 const C = { reset: '\u001B[0m', bold: '\u001B[1m', dim: '\u001B[2m', red: '\u001B[31m', green: '\u001B[32m', yellow: '\u001B[33m' };
@@ -344,6 +345,11 @@ Options:
     } else {
       console.log(`  ${paint(C.green, '✓')} ${want.name} (${(found.size / 1024 / 1024).toFixed(1)} MiB)`);
     }
+  }
+
+  for (const name of unexpectedDesktopAssets(names)) {
+    problems.push(`${name} names no platform (leftover from the old naming scheme)`);
+    console.log(`  ${paint(C.red, '✗')} ${name} (names no platform)`);
   }
 
   for (const platform of desktopAssetsByPlatform(names)) {

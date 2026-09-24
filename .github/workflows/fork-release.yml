@@ -143,6 +143,19 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" "${files[@]}" "${args[@]}"
 
+          # A rolling tag must contain exactly this build. Without this, an asset
+          # that was renamed (the old, platform-less desktop names) stays on the
+          # release and can still be downloaded.
+          if [ "$RELEASE_TAG" = "continuous" ]; then
+            for f in "${files[@]}"; do basename "$f"; done | sort -u > expected-assets.txt
+            gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort > published-assets.txt
+            while IFS= read -r stale; do
+              [ -n "$stale" ] || continue
+              echo "Removing stale asset $stale"
+              gh release delete-asset "$RELEASE_TAG" "$stale" --yes
+            done < <(comm -13 expected-assets.txt published-assets.txt)
+          fi
+
       - name: Ensure a dummy display and the desktop runtime libraries
         if: ${{ inputs.verify }}
         # The AppImage carries its own libraries; the portable Linux zip uses

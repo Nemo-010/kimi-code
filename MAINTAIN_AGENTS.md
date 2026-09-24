@@ -170,7 +170,10 @@ Guard rails, so a bad build cannot damage a good release:
   suspiciously small artifact set;
 - a versioned tag is uploaded **without** `--clobber` unless `allow-overwrite`
   is set, so existing good assets are not replaced;
-- `continuous` always clobbers (it is a rolling tag) but always smoke-tests.
+- `continuous` always clobbers (it is a rolling tag) and then deletes any asset
+  that this build no longer produces, so a renamed artifact cannot linger;
+- `continuous` always smoke-tests, and `tools/fork/*` reject a desktop asset
+  whose name does not say which platform it is for.
 
 Verify a release at any time:
 

@@ -13,6 +13,7 @@ import {
   MIN_DESKTOP_INSTALLER,
   desktopAssetsByPlatform,
   expectedAssets,
+  unexpectedDesktopAssets,
 } from './release-assets.mjs';
 
 const C = { reset: '\u001B[0m', bold: '\u001B[1m', red: '\u001B[31m', green: '\u001B[32m', yellow: '\u001B[33m' };
@@ -95,6 +96,10 @@ Options:
 
   if (!options.allowMissingDesktop) {
     const names = files.map((f) => basename(f));
+    for (const name of unexpectedDesktopAssets(names)) {
+      problems.push(`${name} names no platform (leftover from the old naming scheme)`);
+      console.log(`  ${paint(C.red, '✗')} ${name} (names no platform)`);
+    }
     for (const platform of desktopAssetsByPlatform(names)) {
       if (platform.names.length === 0) {
         problems.push(`no ${platform.label}`);
