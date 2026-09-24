@@ -33,6 +33,12 @@ export interface BrowserSurface {
   evaluate<T>(script: string): Promise<T>;
   /** Capture the visible viewport as a PNG data URL. */
   capture(): Promise<string>;
+  /**
+   * Apply a device profile (viewport, scale, touch) to the page, or clear it
+   * with `null`. Emulation is a `webContents` facility, so the renderer asks
+   * the main process to do it.
+   */
+  setDevice(profile: DeviceProfile | null): Promise<void>;
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void;
   focus(): void;
 }
@@ -205,6 +211,8 @@ interface CollectedPage {
 export class BrowserEngine {
   private readonly snapshots = new Map<string, Snapshot>();
   private activeTabId: string | undefined;
+  /** The device profile applied to each tab, so `get_state` can report it. */
+  private readonly deviceByTab = new Map<string, DeviceProfile | null>();
   /** Set when the user takes the browser over; the agent stops driving it. */
   private takenOver = false;
 
@@ -298,6 +306,7 @@ export class BrowserEngine {
       canGoForward: surface.canGoForward(),
       controlled: surface.id === this.activeTabId,
       visible: surface.id === this.activeTabId,
+      device: this.deviceByTab.get(surface.id) ?? null,
     };
   }
 
@@ -410,6 +419,11 @@ export class BrowserEngine {
         if (profileId !== undefined && profile === undefined) {
           return browserError('INVALID_REQUEST', `Unknown device profile: ${profileId}`);
         }
+        // Apply it, do not just report it: answering with the profile while the
+        // page kept its old viewport is the "offered and dead" failure this
+        // panel exists to avoid.
+        await surface.setDevice(profile ?? null);
+        this.deviceByTab.set(surface.id, profile ?? null);
         return browserOk({ tab: this.tabState(surface), device: profile ?? null });
       }
 

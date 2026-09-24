@@ -248,4 +248,51 @@ describe('TerminalPanel', () => {
     panel.dispose();
     expect(document.querySelector('.kimi-terminal-panel')).toBeNull();
   });
+
+  it('unbinds its window listener so a disposed panel is not kept alive', () => {
+    // Count the bindings directly: jsdom does not expose a reliable listener
+    // count, and the resize handler is bound to `window`, so removing the
+    // panel's element does not remove it.
+    const added: unknown[] = [];
+    const removed: unknown[] = [];
+    const realAdd = window.addEventListener.bind(window);
+    const realRemove = window.removeEventListener.bind(window);
+    const addSpy = vi.spyOn(window, 'addEventListener').mockImplementation((type, handler, options) => {
+      if (type === 'resize') added.push(handler);
+      realAdd(type, handler as EventListener, options);
+    });
+    const removeSpy = vi.spyOn(window, 'removeEventListener').mockImplementation((type, handler, options) => {
+      if (type === 'resize') removed.push(handler);
+      realRemove(type, handler as EventListener, options);
+    });
+    try {
+      const panel = makePanel();
+      expect(added.length).toBeGreaterThan(0);
+      panel.dispose();
+      expect(removed).toStrictEqual(added);
+    } finally {
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    }
+  });
+
+  it('closes its terminals on the daemon when disposed', async () => {
+    // A terminal is a process on the daemon: removing the panel must not leave
+    // a shell running that nobody can reach.
+    const { requests } = installFetch();
+    const panel = makePanel();
+    await panel.open();
+    panel.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(requests.some((r) => r.url.endsWith('/terminals/term-1:close'))).toBe(true);
+  });
+
+  it('does not reopen the socket after disposal', async () => {
+    installFetch();
+    const panel = makePanel();
+    await panel.open();
+    const socket = FakeSocket.instances[0];
+    panel.dispose();
+    expect(socket?.readyState).not.toBe(FakeSocket.OPEN);
+  });
 });

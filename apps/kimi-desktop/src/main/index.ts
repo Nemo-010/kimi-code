@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell, webContents } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 
 import { BrowserEngine } from './browser-engine';
@@ -57,7 +57,12 @@ let browserHost: BrowserHttpServer | undefined;
 /** Pending surface requests, answered by the preload over IPC. */
 const pendingSurfaceCalls = new Map<
   string,
-  { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+    /** The request, so the answer can be finished off here when needed. */
+    request: Record<string, unknown>;
+  }
 >();
 let surfaceCallCounter = 0;
 
@@ -518,6 +523,13 @@ function installBridge(): void {
     const pending = pendingSurfaceCalls.get(requestId);
     if (pending === undefined) return;
     pendingSurfaceCalls.delete(requestId);
+    // A device change is finished here, not in the renderer: the renderer
+    // answers with the webview's contents id, and emulation is applied to that
+    // tab. Without this the engine would report the profile while the page kept
+    // its old viewport.
+    if (pending.request['operation'] === 'setDevice' && typeof value === 'object' && value !== null) {
+      applyDeviceEmulation((value as { contentsId?: unknown }).contentsId, pending.request['profile']);
+    }
     pending.resolve(value);
   });
 
@@ -608,6 +620,7 @@ function rendererCreateTab(): Promise<string> {
         else reject(new Error('The window did not return a tab id.'));
       },
       reject,
+      request: { operation: 'createTab' },
     });
     mainWindow.webContents.send('kimi-browser:create-tab', { requestId });
     setTimeout(() => {
@@ -628,7 +641,7 @@ function rendererTransport(tabId: string, request: Record<string, unknown>): Pro
     }
     surfaceCallCounter += 1;
     const requestId = `s${surfaceCallCounter}`;
-    pendingSurfaceCalls.set(requestId, { resolve, reject });
+    pendingSurfaceCalls.set(requestId, { resolve, reject, request });
     mainWindow.webContents.send('kimi-browser:surface-request', { requestId, tabId, request });
     setTimeout(() => {
       const pending = pendingSurfaceCalls.get(requestId);
@@ -636,6 +649,48 @@ function rendererTransport(tabId: string, request: Record<string, unknown>): Pro
       pendingSurfaceCalls.delete(requestId);
       reject(new Error('The window did not answer in time.'));
     }, 30_000);
+  });
+}
+
+/**
+ * Apply a device profile to the tab's own `webContents`, or clear it. Electron
+ * takes a viewport, a scale factor and a screen size; the profile is validated
+ * first so a malformed value cannot put the page into an unusable state.
+ */
+function applyDeviceEmulation(contentsId: unknown, profile: unknown): void {
+  if (typeof contentsId !== 'number' || !Number.isFinite(contentsId)) return;
+  const contents = webContents.fromId(contentsId);
+  if (contents === undefined) return;
+  if (profile === null || profile === undefined) {
+    contents.disableDeviceEmulation();
+    return;
+  }
+  if (typeof profile !== 'object') return;
+  const raw = profile as Record<string, unknown>;
+  const width = raw['width'];
+  const height = raw['height'];
+  const scale = raw['deviceScaleFactor'];
+  const mobile = raw['mobile'];
+  if (
+    typeof width !== 'number' ||
+    typeof height !== 'number' ||
+    typeof scale !== 'number' ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    !Number.isFinite(scale) ||
+    width <= 0 ||
+    height <= 0 ||
+    scale <= 0
+  ) {
+    return;
+  }
+  contents.enableDeviceEmulation({
+    screenPosition: mobile === true ? 'mobile' : 'desktop',
+    screenSize: { width: Math.round(width), height: Math.round(height) },
+    viewSize: { width: Math.round(width), height: Math.round(height) },
+    deviceScaleFactor: scale,
+    viewPosition: { x: 0, y: 0 },
+    scale: 1,
   });
 }
 

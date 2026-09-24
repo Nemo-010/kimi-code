@@ -104,6 +104,73 @@ describe('TerminalScreen', () => {
     expect(fg).toBeLessThan(232);
   });
 
+  it('executes a control character that interrupts a CSI sequence', () => {
+    // The newline cancels the sequence and moves down WITHOUT resetting the
+    // column, which is what `\n` means in a terminal (`\r\n` is what resets
+    // it). Consuming the newline as a parameter corrupted the line instead of
+    // ending it.
+    const screen = new TerminalScreen(10, 3);
+    screen.write('a\u001B[1\nHx');
+    // "a" left the cursor on column 1, and the sequence did not move it.
+    expect(text(screen)).toStrictEqual(['a', ' Hx', '']);
+  });
+
+  it('does not carry a cancelled sequence into the next line', () => {
+    const screen = new TerminalScreen(10, 3);
+    // No intermediates: the newline alone cancels the sequence. The column
+    // stays where the sequence left it, one past the "a".
+    screen.write('a\u001B[1;2\nZ');
+    expect(text(screen)).toStrictEqual(['a', ' Z', '']);
+  });
+
+  it('advances a line without resetting the column, like a real terminal', () => {
+    const screen = new TerminalScreen(10, 3);
+    screen.write('abc\ndef');
+    expect(text(screen)).toStrictEqual(['abc', '   def', '']);
+  });
+
+  it('keeps parameter bytes out of the parser when they arrive after a control', () => {
+    const screen = new TerminalScreen(10, 3);
+    screen.write('\u001B[\rZ');
+    expect(text(screen)[0]).toBe('Z');
+  });
+
+  it('hides and shows the cursor on the DEC private mode', () => {
+    // List pickers and editors toggle ?25 around every repaint; ignoring it
+    // leaves the cursor block sitting in the middle of the redrawn screen.
+    const screen = new TerminalScreen(10, 3);
+    expect(screen.cursorShown).toBe(true);
+    screen.write('\u001B[?25l');
+    expect(screen.cursorShown).toBe(false);
+    screen.write('\u001B[?25h');
+    expect(screen.cursorShown).toBe(true);
+  });
+
+  it('does not treat a private mode as text', () => {
+    const screen = new TerminalScreen(10, 3);
+    screen.write('hi\u001B[?25labc');
+    expect(text(screen)[0]).toBe('hiabc');
+  });
+
+  it('stays on the last column when wrapping is disabled', () => {
+    // With `?7l` the cursor does not advance past the last column, so every
+    // further character overwrites it. That is what a full-screen program
+    // expects, and it is why the final "b" is what remains.
+    const screen = new TerminalScreen(4, 3);
+    screen.write('abcd\u001B[?7leb');
+    expect(text(screen)[0]).toBe('abcb');
+    expect(text(screen)[1]).toBe('');
+  });
+
+  it('wraps again once the mode is restored', () => {
+    const screen = new TerminalScreen(4, 3);
+    screen.write('abcd\u001B[?7lz\u001B[?7hfg');
+    // The "z" replaced the last column; wrapping is back, so "fg" continues on
+    // the next row rather than overwriting it.
+    expect(text(screen)[0]).toBe('abcz');
+    expect(text(screen)[1]).toBe('fg');
+  });
+
   it('ignores an OSC title without leaking it to the screen', () => {
     const screen = new TerminalScreen(20, 2);
     screen.write('\u001B]0;my title\u0007ok');

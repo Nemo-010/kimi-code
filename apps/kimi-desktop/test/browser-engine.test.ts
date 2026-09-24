@@ -50,6 +50,12 @@ class FakeSurface implements BrowserSurface {
     this.calls.push('capture');
     return 'data:image/png;base64,AAAA';
   }
+  /** Records the applied profile so a no-op implementation cannot pass. */
+  appliedDevice: unknown = undefined;
+  async setDevice(profile: unknown): Promise<void> {
+    this.calls.push(`setDevice:${profile === null ? 'none' : 'profile'}`);
+    this.appliedDevice = profile;
+  }
   setBounds(): void {}
   focus(): void {}
 }

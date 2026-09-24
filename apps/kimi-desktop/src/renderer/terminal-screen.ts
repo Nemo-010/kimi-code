@@ -52,6 +52,10 @@ export class TerminalScreen {
   private csiParams = '';
   private scrollTop = 0;
   private scrollBottom = DEFAULT_ROWS - 1;
+  /** DEC mode `?25`: whether the cursor is shown. TUIs toggle this constantly. */
+  private cursorVisible = true;
+  /** DEC mode `?7`: whether writing past the last column wraps. */
+  private autoWrap = true;
 
   constructor(
     public cols = DEFAULT_COLS,
@@ -71,6 +75,8 @@ export class TerminalScreen {
     this.csiParams = '';
     this.scrollTop = 0;
     this.scrollBottom = this.rows - 1;
+    this.cursorVisible = true;
+    this.autoWrap = true;
   }
 
   /**
@@ -108,6 +114,11 @@ export class TerminalScreen {
   /** Whether the view is showing history rather than the live screen. */
   get scrollingBack(): boolean {
     return this.scrollOffset > 0;
+  }
+
+  /** Whether the application has asked for the cursor to be shown. */
+  get cursorShown(): boolean {
+    return this.cursorVisible;
   }
 
   cursor(): { row: number; col: number } {
@@ -168,6 +179,15 @@ export class TerminalScreen {
       return;
     }
     if (this.state === 'csi') {
+      // A control character cancels the sequence and is executed, which is what
+      // a real terminal does: `ESC [ 1 \n H` is a line feed, not a stray
+      // parameter. Consuming it here corrupted the line instead.
+      if (char < '\u0020') {
+        this.state = 'text';
+        this.csiParams = '';
+        this.executeControl(char);
+        return;
+      }
       // Parameter bytes are digits, `;`, `?`, `>` and intermediates.
       if (char >= '\u0030' && char <= '\u003F') {
         this.csiParams += char;
@@ -182,6 +202,11 @@ export class TerminalScreen {
       this.csiParams = '';
       return;
     }
+    this.executeControl(char);
+  }
+
+  /** C0 controls, shared by the text state and an aborted escape sequence. */
+  private executeControl(char: string): void {
     switch (char) {
       case '\u001B':
         this.state = 'escape';
@@ -208,9 +233,15 @@ export class TerminalScreen {
 
   private putChar(char: string): void {
     if (this.cursorCol >= this.cols) {
-      // Deferred wrap: writing past the end starts a new line.
-      this.cursorCol = 0;
-      this.lineFeed();
+      if (!this.autoWrap) {
+        // Wrapping disabled (`?7l`): the cursor sits on the last column and
+        // overwrites it, which is what a full-screen program expects.
+        this.cursorCol = this.cols - 1;
+      } else {
+        // Deferred wrap: writing past the end starts a new line.
+        this.cursorCol = 0;
+        this.lineFeed();
+      }
     }
     const line = this.lines[this.cursorRow];
     if (line === undefined) return;
@@ -335,6 +366,21 @@ export class TerminalScreen {
       case 'K':
         this.eraseLine(args[0] ?? 0);
         return;
+      case 'h':
+      case 'l': {
+        // DEC private modes. `?25` is cursor visibility, which list pickers and
+        // editors toggle around every repaint; ignoring it leaves the block
+        // cursor sitting in the middle of a redrawn screen. `?1049` is the
+        // alternate screen, which this panel does not keep, so it is accepted
+        // and treated as a no-op rather than rendering the escape text.
+        if (!raw.startsWith('?')) return;
+        const on = final === 'h';
+        for (const mode of args) {
+          if (mode === 25) this.cursorVisible = on;
+          if (mode === 7) this.autoWrap = on;
+        }
+        return;
+      }
       case 'm':
         this.applySgr(args);
         return;

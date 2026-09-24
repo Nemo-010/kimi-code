@@ -90,6 +90,8 @@ export class TerminalPanel {
   private requestCounter = 0;
   private sessionId: string | null = null;
   private resizeTimer: number | undefined;
+  /** The `resize` handler, held so `dispose` can unbind it. */
+  private onWindowResize: (() => void) | undefined;
   private disposed = false;
 
   constructor(private readonly options: TerminalPanelOptions) {
@@ -242,6 +244,29 @@ export class TerminalPanel {
   dispose(): void {
     this.disposed = true;
     if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer);
+    // The listener is bound to the window, not to the panel, so removing the
+    // panel's element does not remove it. Leaving it attached leaks one handler
+    // per panel and keeps the panel object alive through its closure.
+    if (this.onWindowResize !== undefined) {
+      window.removeEventListener('resize', this.onWindowResize);
+      this.onWindowResize = undefined;
+    }
+    // Terminals belong to the daemon and keep running after the panel is gone,
+    // so closing the panel has to close them. Rendering this without telling
+    // the daemon would leave a shell alive with no way to reach it.
+    for (const tab of this.tabs.values()) {
+      if (tab.exited || this.sessionId === null) continue;
+      try {
+        void this.rest(
+          'POST',
+          `/api/v1/sessions/${encodeURIComponent(this.sessionId)}/terminals/${encodeURIComponent(tab.id)}:close`,
+          {},
+        );
+      } catch {
+        // Best effort: the daemon reaps a terminal whose session ends anyway.
+      }
+    }
+    this.tabs.clear();
     this.socket?.close();
     this.socket = undefined;
     this.root.remove();
@@ -422,7 +447,7 @@ export class TerminalPanel {
     }
     const at = rows[cursorRow]?.[cursorCol];
     tab.cursor.textContent = at === undefined || at.char === ' ' ? ' ' : at.char;
-    tab.cursor.style.visibility = tab.exited ? 'hidden' : 'visible';
+    tab.cursor.style.visibility = tab.exited || !tab.screen.cursorShown ? 'hidden' : 'visible';
   }
 
   private renderTabs(): void {
@@ -577,10 +602,11 @@ export class TerminalPanel {
         this.paint(tab);
       }
     });
-    window.addEventListener('resize', () => {
+    this.onWindowResize = () => {
       if (this.resizeTimer !== undefined) window.clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => this.refit(), 120);
-    });
+    };
+    window.addEventListener('resize', this.onWindowResize);
   }
 }
 

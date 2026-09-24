@@ -23,6 +23,7 @@ import type { IpcRendererEvent } from 'electron';
 import { TerminalPanel, readCredential } from '../renderer/terminal-panel';
 
 const MAX_URL_LENGTH = 4096;
+const MAX_SCRIPT_LENGTH = 200_000;
 const MAX_TITLE_LENGTH = 512;
 const MAX_ID_LENGTH = 128;
 const MAX_BROWSERS = 24;
@@ -51,6 +52,16 @@ function asBounds(value: unknown): { x: number; y: number; width: number; height
   };
 }
 
+/**
+ * Schemes a surface may load. The engine already resolves bare text and search
+ * queries into https URLs, so anything else here is either a bug or an attempt
+ * to reach the local filesystem through the panel.
+ */
+function isAllowedUrl(url: string): boolean {
+  if (url === 'about:blank') return true;
+  return /^https?:\/\//i.test(url);
+}
+
 type Surface = HTMLElement & {
   loadURL(url: string): Promise<void>;
   canGoBack(): boolean;
@@ -64,11 +75,98 @@ type Surface = HTMLElement & {
   getTitle(): string;
   executeJavaScript(code: string): Promise<unknown>;
   capturePage(): Promise<{ toDataURL(): string }>;
+  getWebContentsId(): number;
   __kimiVisible: boolean;
 };
 
 const surfaces = new Map<string, Surface>();
 let surfaceCounter = 0;
+
+/**
+ * Run one engine operation against the surface's `<webview>`.
+ *
+ * The engine's operations are the only way the main process can touch a page.
+ * They are executed here because this is the only place the element exists.
+ * A rejected operation answers with an error rather than throwing, so one bad
+ * call cannot wedge the panel.
+ */
+async function runSurfaceOperation(
+  view: Surface,
+  request: Record<string, unknown>,
+): Promise<unknown> {
+  const operation = request['operation'];
+  try {
+    switch (operation) {
+      case 'loadURL': {
+        const url = asString(request['url'], MAX_URL_LENGTH);
+        if (url === null || !isAllowedUrl(url)) {
+          return { ok: false, error: { code: 'INVALID_REQUEST', message: 'Unsupported URL.' } };
+        }
+        await view.loadURL(url);
+        return { url: view.getURL(), title: view.getTitle() };
+      }
+      case 'goBack':
+        if (view.canGoBack()) view.goBack();
+        return { ok: true };
+      case 'goForward':
+        if (view.canGoForward()) view.goForward();
+        return { ok: true };
+      case 'reload':
+        view.reload();
+        return { ok: true };
+      case 'stop':
+        view.stop();
+        return { ok: true };
+      case 'focus':
+        view.focus();
+        return { ok: true };
+      case 'setBounds': {
+        applyBounds(view, asBounds(request['bounds']));
+        return { ok: true };
+      }
+      case 'setDevice': {
+        // Device emulation is a `webContents` facility. The renderer records the
+        // profile and reports the webview's contents id, so the main process can
+        // apply emulation to this tab rather than to the whole window.
+        const profile = request['profile'];
+        const profileId =
+          typeof profile === 'object' && profile !== null && typeof (profile as { profileId?: unknown }).profileId === 'string'
+            ? String((profile as { profileId: string }).profileId)
+            : '';
+        view.dataset['kimiDeviceProfile'] = profileId;
+        let contentsId: number | undefined;
+        try {
+          contentsId = view.getWebContentsId();
+        } catch {
+          // The guest is not attached yet; the main process will skip emulation.
+          contentsId = undefined;
+        }
+        return { ok: true, contentsId };
+      }
+      case 'evaluate': {
+        const script = asString(request['script'], MAX_SCRIPT_LENGTH);
+        if (script === null) {
+          return { ok: false, error: { code: 'INVALID_REQUEST', message: 'No script.' } };
+        }
+        return await view.executeJavaScript(script);
+      }
+      case 'capture': {
+        const image = await view.capturePage();
+        return image.toDataURL();
+      }
+      default:
+        return { ok: false, error: { code: 'INVALID_REQUEST', message: 'Unknown operation.' } };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : 'The page operation failed.',
+      },
+    };
+  }
+}
 
 function send(channel: string, payload: Record<string, unknown>): void {
   ipcRenderer.send(channel, payload);
@@ -239,43 +337,23 @@ const kimiBrowser = {
  * tab. The renderer is where the `<webview>` lives, so only the renderer can
  * dereference it; the main process sends a request and waits for the answer.
  *
- * `handlers` is kept in the preload's own scope and never exposed to the page:
- * the page can ask for a tab to be created, but it cannot evaluate arbitrary
+ * The map it dispatches through is the preload's own, keyed by the surface the
+ * preload created. The page can ask for a tab to exist, but it cannot evaluate
  * script in another tab through this channel.
  */
-const handlers = new Map<string, (request: Record<string, unknown>) => unknown>();
-
-function surfaceRequest(request: Record<string, unknown>): unknown {
-  const id = asId(request['tabId']);
-  if (id === null) return { ok: false, error: { code: 'TAB_NOT_FOUND', message: 'No such tab.' } };
-  const handler = handlers.get(id);
-  if (handler === undefined) {
-    return { ok: false, error: { code: 'TAB_NOT_FOUND', message: `No tab ${id}.` } };
-  }
-  return handler(request);
-}
-
 const kimiBrowserSurface = {
-  /** Called by the panel when it mounts a surface element. */
-  attach(browserId: unknown, bound: unknown): boolean {
-    const id = asId(browserId);
-    if (id === null || typeof bound !== 'function') return false;
-    handlers.set(id, bound as (request: Record<string, unknown>) => unknown);
-    return true;
-  },
-
-  detach(browserId: unknown): void {
-    const id = asId(browserId);
-    if (id !== null) handlers.delete(id);
-  },
-
-  /** The main process calls this to run an engine request against a surface. */
+  /**
+   * Run an engine request against a surface. Returns `null` when there is no
+   * such tab, which the main process reports as `TAB_NOT_FOUND`.
+   */
   execute(browserId: unknown, request: unknown): unknown {
     const id = asId(browserId);
     if (id === null || typeof request !== 'object' || request === null) return null;
-    const handler = handlers.get(id);
-    if (handler === undefined) return null;
-    return handler(request as Record<string, unknown>);
+    const view = surfaces.get(id);
+    if (view === undefined) return null;
+    // The caller waits on the response, so the promise is returned, not fired
+    // and forgotten: an async operation that is not awaited answers `null`.
+    return runSurfaceOperation(view, request as Record<string, unknown>);
   },
 };
 
@@ -295,18 +373,27 @@ ipcRenderer.on('kimi-browser:create-tab', (event, payload: unknown) => {
 // The agent closed a tab; the element has to go, not just its id.
 ipcRenderer.on('kimi-browser:close-tab', (_event, payload: unknown) => {
   const browserId = asId((payload as { browserId?: unknown } | null)?.browserId);
-  if (browserId !== null) {
-    handlers.delete(browserId);
-    destroySurface(browserId);
-  }
+  if (browserId !== null) destroySurface(browserId);
 });
 
 ipcRenderer.on('kimi-browser:surface-request', (event, payload: unknown) => {
   if (typeof payload !== 'object' || payload === null) return;
-  const { requestId, request } = payload as { requestId?: unknown; request?: unknown };
+  const { requestId, tabId, request } = payload as {
+    requestId?: unknown;
+    tabId?: unknown;
+    request?: unknown;
+  };
   if (typeof requestId !== 'string' || typeof request !== 'object' || request === null) return;
-  void Promise.resolve(surfaceRequest(request as Record<string, unknown>)).then((value) => {
-    event.sender.send('kimi-browser:surface-response', { requestId, value });
+  // `tabId` is the envelope's field; it is not inside `request`, which is the
+  // operation itself. Reading it from the wrong side answered TAB_NOT_FOUND for
+  // every operation and left the whole surface dead.
+  const view = surfaces.get(asId(tabId) ?? '');
+  const value =
+    view === undefined
+      ? { ok: false, error: { code: 'TAB_NOT_FOUND', message: `No tab ${String(tabId)}.` } }
+      : runSurfaceOperation(view, request as Record<string, unknown>);
+  void Promise.resolve(value).then((settled) => {
+    event.sender.send('kimi-browser:surface-response', { requestId, value: settled });
   });
 });
 

@@ -4,7 +4,7 @@
 // renderer, so every operation is a request over IPC that the preload's
 // `window.kimiBrowserSurface.execute` answers. The proxy exists so the engine
 // can be written against a plain interface and unit tested without Electron.
-import type { BrowserSurface } from './browser-engine';
+import type { BrowserSurface, DeviceProfile } from './browser-engine';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -22,6 +22,9 @@ interface SurfaceState {
 }
 
 export class RemoteBrowserSurface implements BrowserSurface {
+  /** The device profile applied to this surface, if any. */
+  private device: DeviceProfile | null = null;
+
   private state: SurfaceState = {
     url: '',
     title: '',
@@ -104,6 +107,16 @@ export class RemoteBrowserSurface implements BrowserSurface {
 
   async capture(): Promise<string> {
     return this.call<string>({ operation: 'capture' });
+  }
+
+  async setDevice(profile: DeviceProfile | null): Promise<void> {
+    await this.call({ operation: 'setDevice', profile });
+    this.device = profile;
+  }
+
+  /** The profile currently applied, for `tab.get_state`. */
+  deviceProfile(): DeviceProfile | null {
+    return this.device;
   }
 
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
