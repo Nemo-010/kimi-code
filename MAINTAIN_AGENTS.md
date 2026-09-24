@@ -226,10 +226,9 @@ The GitHub Actions are pinned to major tags; keep them on current stable
 
 - **Nix hash.** `flake.nix` uses `pkgs.fetchPnpmDeps`; the `hash` must be
   refreshed whenever `pnpm-lock.yaml` changes. `nix-build.yml` runs on PRs and
-  reports the correct `got:` hash; locally, run `nix build .#kimi-code` and copy
-  the `got:` value from the error into `flake.nix`. Nix is not available in
-  every environment, so this can stay stale until someone with Nix fixes it —
-  it does not affect the release pipeline.
+  push, and its build log contains the correct `got:` hash on a mismatch; copy
+  that into `flake.nix`. Locally, run `nix build .#kimi-code` and read the same
+  line. Nix is not available in every environment, but the failure log is.
 - **Web bundle.** `apps/kimi-code/dist-web` is committed (synced from the
   code-app repo). Packaging runs `node apps/kimi-code/scripts/check-web-assets.mjs`
   instead of building it; if the bundle is missing, that check fails.

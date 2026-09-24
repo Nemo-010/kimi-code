@@ -495,9 +495,11 @@ old code.
 - [x] `pnpm --filter @moonshot-ai/kimi-code run build:native:sea` succeeds
 - [x] `pnpm -C apps/kimi-desktop run typecheck` passes
 - [x] `CSC_IDENTITY_AUTO_DISCOVERY=false pnpm -C apps/kimi-desktop run dist:dir` produces `dist-app/linux-unpacked/`
-- [ ] the bundle launches, finds or starts a server, and loads the web UI
-      (not verifiable in the sandbox that did the restore: no display, and
-      binding a listening socket is blocked, so the server cannot come up)
+- [x] the bundle launches, starts or finds a server, and connects to it — the
+      release smoke test launches the desktop AppImage under `xvfb` and waits
+      for its `[kimi-desktop] connected to …` line (`verify-release.mjs`).
+      The web UI itself is not asserted, only that the window process reaches a
+      healthy server
 - [x] the `.deb` target is wired up; building it locally needs electron-builder's
       bundled `fpm`, which wants `libcrypt.so.1` — present on the CI runners
       (`desktop-build.yml` builds it there)
@@ -505,6 +507,7 @@ old code.
       `desktop-artifacts` job in `release.yml`
 - [x] a fork-safe release pipeline (`fork-release.yml`) and pkgforge AppImages
       (`appimage.yml`, `packaging/appimage/`)
-- [ ] refresh the `pnpmDeps` hash in `flake.nix` (needs Nix; the `nix-build.yml`
-      check reports the correct `got:` hash)
-- [ ] run `fork-release.yml` once to produce the first AppImage release
+- [x] refresh the `pnpmDeps` hash in `flake.nix` (the `nix-build.yml` build log
+      reports the correct `got:` hash)
+- [x] run `fork-release.yml` once to produce the first AppImage release
+      (`v2.1.0-fork.2`, plus the rolling `continuous` pre-release)

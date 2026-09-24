@@ -160,10 +160,7 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
-              # NOTE: refresh after the kimi-desktop lockfile change; run
-              # `nix build .#kimi-code` and copy the `got:` hash from the
-              # mismatch error (or from the Nix Build CI comment).
-              hash = "sha256-xrn34bQ76s+ouOZPHZ4TBkpTHxG7gZejmx8RqSii2uA=";
+              hash = "sha256-+yGdPVY3eBLc/DMpCG8+D0M9n0Cy9U1WbXKT9G1gbrc=";
             };
 
             nativeBuildInputs = [
