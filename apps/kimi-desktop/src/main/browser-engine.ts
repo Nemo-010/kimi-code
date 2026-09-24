@@ -226,7 +226,7 @@ export class BrowserEngine {
 
   async run(request: BrowserRequest): Promise<BrowserResponse> {
     if (request.protocol !== BROWSER_PROTOCOL) {
-      return browserError('INVALID_REQUEST', `Invalid ${BROWSER_PROTOCOL} request`);
+      return browserError('INVALID_REQUEST', `Invalid ${String(BROWSER_PROTOCOL)} request`);
     }
     if (!isBrowserOperation(request.operation)) {
       return browserError('INVALID_REQUEST', `Unknown operation: ${String(request.operation)}`);
@@ -487,7 +487,7 @@ export class BrowserEngine {
         return this.elementAction(operation, request);
 
       default:
-        return browserError('INVALID_REQUEST', `Unsupported operation: ${operation}`);
+        return browserError('INVALID_REQUEST', `Unsupported operation: ${String(operation)}`);
     }
   }
 
@@ -653,7 +653,7 @@ export class BrowserEngine {
         return browserOk({ from: request['from'] ?? null, to: request['to'] ?? null });
       }
       default:
-        return browserError('INVALID_REQUEST', `Unsupported operation: ${operation}`);
+        return browserError('INVALID_REQUEST', `Unsupported operation: ${String(operation)}`);
     }
   }
 
