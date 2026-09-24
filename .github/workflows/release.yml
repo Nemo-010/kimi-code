@@ -101,6 +101,70 @@ jobs:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
 
+  desktop-artifacts:
+    name: Desktop release artifact
+    needs: release
+    if: needs.release.outputs.kimi_native_release == 'true'
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      upload-artifact-prefix: kimi-desktop
+      retention-days: 7
+      sign-macos: true
+    secrets:
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+
+  appimage-artifacts:
+    name: AppImage release artifact
+    needs: release
+    if: needs.release.outputs.kimi_native_release == 'true'
+    uses: ./.github/workflows/appimage.yml
+    with:
+      version: ${{ needs.release.outputs.kimi_release_tag }}
+      upload-artifact-prefix: kimi-appimage
+      retention-days: 7
+
+  publish-desktop-assets:
+    name: Publish desktop release assets
+    needs:
+      - release
+      - desktop-artifacts
+      - appimage-artifacts
+    if: needs.release.outputs.kimi_native_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: kimi-desktop-*
+          path: dist-desktop-release
+
+      - name: Download AppImage artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: kimi-appimage-*
+          path: dist-appimage-release
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release.outputs.kimi_release_tag }}
+        run: |
+          set -euo pipefail
+          files=$(find dist-desktop-release dist-appimage-release -type f \( \
+            -name '*.dmg' -o -name '*.exe' -o -name '*.deb' -o -name '*.AppImage' \) | sort)
+          printf '%s\n' "$files"
+          gh release upload "$RELEASE_TAG" $files --clobber
+
   publish-native-assets:
     name: Publish native release assets
     needs:

@@ -162,15 +162,27 @@ unzip kimi-code-linux-x64.zip
 sha256sum -c kimi-code-linux-x64.zip.sha256
 ```
 
-Other platforms are produced by the upstream native-bundle workflow; this fork
-publishes only what it builds.
+The fork's release pipeline is `.github/workflows/fork-release.yml`
+(`workflow_dispatch`): it builds the native bundles, the desktop installers and
+the pkgforge AppImages, then attaches them to the release tag. The upstream
+`release.yml` is gated to the `MoonshotAI` organisation, so it does not run on
+this fork. Other platforms are produced by the upstream native-bundle workflow;
+this fork publishes only what it builds.
 
-## Re-adding the desktop app
+## Desktop app
 
-Upstream removed the Electron desktop client in
-[#1849](https://github.com/MoonshotAI/kimi-code/pull/1849). See
-[KIMI_DESKTOP.md](./KIMI_DESKTOP.md) for a full reconstruction guide, including
-the four places the removed code no longer matches this tree.
+This fork restores the Electron desktop client (`apps/kimi-desktop`) that
+upstream removed in
+[#1849](https://github.com/MoonshotAI/kimi-code/pull/1849), ported to the
+current server (`kimi web` foreground runner + the kap-server instance
+registry instead of the removed single-instance lock). The desktop reuses a
+running shared server or starts one with the bundled SEA, and reaps only the
+server it started. See [`apps/kimi-desktop/README.md`](./apps/kimi-desktop/README.md)
+and the porting notes in [KIMI_DESKTOP.md](./KIMI_DESKTOP.md).
+
+Linux AppImages for the CLI and the desktop are built with pkgforge-dev's
+`quick-sharun` in `.github/workflows/appimage.yml`; see
+`packaging/appimage/`.
 
 ## License
 

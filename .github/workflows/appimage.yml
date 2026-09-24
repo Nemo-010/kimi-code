@@ -1,0 +1,126 @@
+name: appimage
+
+# Builds truly portable AppImages for the Kimi Code CLI and Kimi Code Desktop
+# with pkgforge-dev's quick-sharun, following
+# https://github.com/pkgforge-dev/Anylinux-AppImages/blob/main/HOW-TO-MAKE-THESE.md
+#
+# Everything runs inside the pkgforge Arch Linux container, which is what
+# quick-sharun expects. Node.js is pinned to the repo's .nvmrc rather than the
+# distro's package, so the SEA is injected into the same Node the release uses.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label written into the AppImages (e.g. 2.1.0-fork.2)'
+        required: false
+        type: string
+        default: ''
+      retention-days:
+        description: 'Artifact retention in days'
+        required: false
+        type: number
+        default: 7
+      upload-artifact-prefix:
+        description: 'Prefix for uploaded artifact name'
+        required: false
+        type: string
+        default: 'kimi-appimage'
+  workflow_call:
+    inputs:
+      version:
+        required: false
+        type: string
+        default: ''
+      retention-days:
+        required: false
+        type: number
+        default: 7
+      upload-artifact-prefix:
+        required: false
+        type: string
+        default: 'kimi-appimage'
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    name: AppImage (${{ matrix.arch }})
+    runs-on: ${{ matrix.runs-on }}
+    container: ghcr.io/pkgforge-dev/archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-24.04
+            arch: x86_64
+            nodeArch: x64
+          - runs-on: ubuntu-24.04-arm
+            arch: aarch64
+            nodeArch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Preparing container
+        uses: pkgforge-dev/anylinux-setup-action@7ff2bdc2fe97f9a4c6a4007f5f42fb4941f49fee # v4
+
+      - name: Install Node.js and pnpm
+        run: |
+          set -eu
+          pacman -Syu --noconfirm base-devel curl xz
+          node_version=$(cat .nvmrc)
+          curl -fsSL "https://nodejs.org/dist/v${node_version}/node-v${node_version}-linux-${{ matrix.nodeArch }}.tar.xz" -o /tmp/node.tar.xz
+          tar -xf /tmp/node.tar.xz -C /opt
+          ln -sf "/opt/node-v${node_version}-linux-${{ matrix.nodeArch }}/bin/node" /usr/local/bin/node
+          ln -sf "/opt/node-v${node_version}-linux-${{ matrix.nodeArch }}/bin/npm" /usr/local/bin/npm
+          ln -sf "/opt/node-v${node_version}-linux-${{ matrix.nodeArch }}/bin/npx" /usr/local/bin/npx
+          npm install -g pnpm@10.33.0
+          ln -sf "/opt/node-v${node_version}-linux-${{ matrix.nodeArch }}/bin/pnpm" /usr/local/bin/pnpm
+          node --version
+          pnpm --version
+
+      - name: Install workspace dependencies
+        env:
+          TMPDIR: ${{ github.workspace }}/.tmp
+          ELECTRON_CACHE: ${{ github.workspace }}/.electron-cache
+        run: |
+          mkdir -p "$TMPDIR" "$ELECTRON_CACHE"
+          pnpm install --frozen-lockfile
+
+      - name: Build native executable
+        run: pnpm --filter @moonshot-ai/kimi-code run build:native:sea
+
+      - name: Build unpacked desktop app
+        env:
+          TMPDIR: ${{ github.workspace }}/.tmp
+          ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.electron-builder-cache
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: pnpm --filter @moonshot-ai/kimi-desktop run dist:dir
+
+      - name: Build the CLI AppImage
+        working-directory: packaging/appimage/kimi-code
+        env:
+          KIMI_SEA: ${{ github.workspace }}/apps/kimi-code/dist-native/bin/linux-${{ matrix.nodeArch }}/kimi
+          KIMI_VERSION: ${{ inputs.version != '' && inputs.version || '2.1.0' }}
+        run: |
+          /bin/sh ./get-dependencies.sh
+          /bin/sh ./make-appimage.sh
+
+      - name: Build the desktop AppImage
+        working-directory: packaging/appimage/kimi-desktop
+        env:
+          KIMI_DESKTOP_UNPACKED: ${{ github.workspace }}/apps/kimi-desktop/dist-app/linux-unpacked
+          KIMI_VERSION: ${{ inputs.version != '' && inputs.version || '2.1.0' }}
+        run: |
+          /bin/sh ./get-dependencies.sh
+          /bin/sh ./make-appimage.sh
+
+      - name: Upload the AppImages
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.upload-artifact-prefix }}-${{ matrix.arch }}
+          retention-days: ${{ inputs.retention-days }}
+          path: packaging/appimage/*/dist/*.AppImage
+          if-no-files-found: error

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kimi Code
+Comment=Kimi Code CLI
+Exec=kimi
+Icon=kimi-code
+Categories=Development;Utility;
+Terminal=true

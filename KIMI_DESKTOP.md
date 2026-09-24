@@ -24,6 +24,34 @@ restored code stops working if you copy the old files verbatim. Read
 [What changed since the deletion](#what-changed-since-the-deletion) before you
 copy anything.
 
+## Status on this fork
+
+The app has been restored. What actually shipped differs from this guide in a
+few places, and the rest was verified against the tree:
+
+- The server discovery uses a third option the guide did not spell out: the
+desktop reads the kap-server **instance registry** directly (a small JSON
+reader, `apps/kimi-desktop/src/main/instance-registry.ts`) instead of importing
+`@moonshot-ai/kap-server` (which would bundle the whole server into the
+Electron main process) or parsing the SEA's human-readable banner.
+- The daemon teardown policy is **reap the child the desktop started, leave a
+server started by the CLI alone**. `kimi web` has no idle shutdown, so this is
+the only option that neither orphans servers nor kills another client's.
+- Electron moved to `44.x` and electron-builder to `26.x`; the `console-message`
+listener uses the current `(details) => details.message` shape.
+- The Linux AppImage is produced with pkgforge-dev's `quick-sharun` from the
+`electron-builder --dir` output, not by electron-builder's own AppImage target.
+- The Nix `pnpmDeps` hash in `flake.nix` still has to be refreshed after the
+lockfile change (no Nix in the environment that produced the restore).
+
+Verified as accurate: `kimi server run` is gone (deprecation shim); the
+single-instance lock was replaced by the instance registry; `kimi web` is a
+foreground runner with no idle shutdown; `server.token` is still
+`<KIMI_CODE_HOME>/server.token` at mode `0600`; the committed web bundle reads
+`#token=` from `location.hash` and strips it, and honours
+`?kimi_desktop=1&platform=…`; the `typecheck` filter and the Electron
+`onlyBuiltDependencies` allowance were removed and have been restored.
+
 Recover the deleted files. A normal `git clone` is shallow-traversed enough that
 the removal commit may not be present, so fetch it explicitly first:
 
@@ -457,15 +485,26 @@ old code.
 
 ## Checklist
 
-- [ ] `git revert f441193e1de0541af96f26c1a8b5a8c003fd6f60` (or extract the files from `56ba8e01`)
-- [ ] `ensure-server.ts`: `server run` → `web --no-open`
-- [ ] `ensure-server.ts`: lock file → instance registry, or a printed origin
-- [ ] `index.ts`: decide and implement the daemon teardown policy
-- [ ] re-add `apps/kimi-desktop` to `flake.nix` `workspacePaths` and `workspaceNames`
-- [ ] re-add `onlyBuiltDependencies: [electron]` to `pnpm-workspace.yaml`, regenerate the lock
-- [ ] re-add `dev:desktop` to root scripts and the desktop filter to root `typecheck`
-- [ ] `pnpm --filter @moonshot-ai/kimi-code run build:native:sea` succeeds
-- [ ] `pnpm -C apps/kimi-desktop run typecheck` passes
-- [ ] `CSC_IDENTITY_AUTO_DISCOVERY=false pnpm -C apps/kimi-desktop run dist` produces a bundle
+- [x] `git revert f441193e1de0541af96f26c1a8b5a8c003fd6f60` (or extract the files from `56ba8e01`)
+- [x] `ensure-server.ts`: `server run` → `web --no-open`
+- [x] `ensure-server.ts`: lock file → instance registry
+- [x] `index.ts`: reap the spawned server on quit; leave a reused one alone
+- [x] re-add `apps/kimi-desktop` to `flake.nix` `workspacePaths` and `workspaceNames`
+- [x] re-add `onlyBuiltDependencies: [electron]` to `pnpm-workspace.yaml`, regenerate the lock
+- [x] re-add `dev:desktop` to root scripts and the desktop filter to root `typecheck`
+- [x] `pnpm --filter @moonshot-ai/kimi-code run build:native:sea` succeeds
+- [x] `pnpm -C apps/kimi-desktop run typecheck` passes
+- [x] `CSC_IDENTITY_AUTO_DISCOVERY=false pnpm -C apps/kimi-desktop run dist:dir` produces `dist-app/linux-unpacked/`
 - [ ] the bundle launches, finds or starts a server, and loads the web UI
-- [ ] restoring CI: new `desktop-build.yml` with `workflow_dispatch`, and the `desktop-artifacts` job in `release.yml`
+      (not verifiable in the sandbox that did the restore: no display, and
+      binding a listening socket is blocked, so the server cannot come up)
+- [x] the `.deb` target is wired up; building it locally needs electron-builder's
+      bundled `fpm`, which wants `libcrypt.so.1` — present on the CI runners
+      (`desktop-build.yml` builds it there)
+- [x] restoring CI: `desktop-build.yml` with `workflow_dispatch`, and the
+      `desktop-artifacts` job in `release.yml`
+- [x] a fork-safe release pipeline (`fork-release.yml`) and pkgforge AppImages
+      (`appimage.yml`, `packaging/appimage/`)
+- [ ] refresh the `pnpmDeps` hash in `flake.nix` (needs Nix; the `nix-build.yml`
+      check reports the correct `got:` hash)
+- [ ] run `fork-release.yml` once to produce the first AppImage release

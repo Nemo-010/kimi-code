@@ -78,6 +78,7 @@
         ./packages/transcript
         ./packages/tree-sitter-bash
         ./apps/kimi-code
+        ./apps/kimi-desktop
         ./apps/vscode
         ./apps/kimi-inspect
         ./apps/vis
@@ -103,6 +104,7 @@
         "@moonshot-ai/transcript"
         "@moonshot-ai/tree-sitter-bash"
         "@moonshot-ai/kimi-code"
+        "@moonshot-ai/kimi-desktop"
         "kimi-code"
         "@moonshot-ai/kimi-inspect"
         "@moonshot-ai/vis"
@@ -158,6 +160,9 @@
               inherit (finalAttrs) pname version src pnpmWorkspaces;
               inherit pnpm;
               fetcherVersion = 3;
+              # NOTE: refresh after the kimi-desktop lockfile change; run
+              # `nix build .#kimi-code` and copy the `got:` hash from the
+              # mismatch error (or from the Nix Build CI comment).
               hash = "sha256-xrn34bQ76s+ouOZPHZ4TBkpTHxG7gZejmx8RqSii2uA=";
             };
 

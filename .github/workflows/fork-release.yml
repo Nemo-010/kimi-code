@@ -1,0 +1,84 @@
+name: Fork Release
+
+# Builds the fork's release assets (native SEA bundles, desktop installers and
+# pkgforge AppImages) and attaches them to a GitHub Release. This is the
+# fork-safe counterpart of the upstream `release.yml` pipeline, which is gated
+# to the MoonshotAI organisation.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. v2.1.0-fork.2'
+        required: true
+        type: string
+      create-release:
+        description: 'Create/update the GitHub Release and upload the assets'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native bundles
+    uses: ./.github/workflows/_native-build.yml
+    with:
+      upload-artifact-prefix: kimi-code-native
+      retention-days: 7
+      sign-macos: false
+      sign-windows: false
+    secrets: inherit
+
+  desktop:
+    name: Desktop installers
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      upload-artifact-prefix: kimi-desktop
+      retention-days: 7
+      sign-macos: false
+    secrets: inherit
+
+  appimage:
+    name: AppImages
+    uses: ./.github/workflows/appimage.yml
+    with:
+      version: ${{ inputs.version }}
+      retention-days: 7
+      upload-artifact-prefix: kimi-appimage
+
+  release:
+    name: Publish release
+    needs:
+      - native
+      - desktop
+      - appimage
+    if: ${{ inputs.create-release }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download every artifact
+        uses: actions/download-artifact@v8
+        with:
+          path: dist-release
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 \
+            || gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --generate-notes
+          files=$(find dist-release -type f \( \
+            -name '*.zip' -o -name '*.zip.sha256' \
+            -o -name '*.dmg' -o -name '*.exe' -o -name '*.deb' \
+            -o -name '*.AppImage' \) | sort)
+          printf '%s\n' "$files"
+          gh release upload "$RELEASE_TAG" $files --clobber

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Kimi Code Desktop
+Comment=Desktop client for Kimi Code
+Exec=kimi-desktop
+Icon=kimi-desktop
+Categories=Development;
+Terminal=false
+StartupWMClass=Kimi Code Desktop
