@@ -111,11 +111,15 @@ jobs:
       - name: Build the desktop AppImage
         working-directory: packaging/appimage/kimi-desktop
         env:
-          KIMI_DESKTOP_UNPACKED: ${{ github.workspace }}/apps/kimi-desktop/dist-app/linux-unpacked
           KIMI_VERSION: ${{ inputs.version != '' && inputs.version || '2.1.0' }}
         run: |
-          /bin/sh ./get-dependencies.sh
-          /bin/sh ./make-appimage.sh
+          set -eu
+          # electron-builder names the unpacked tree linux-unpacked on x64 and
+          # linux-<arch>-unpacked elsewhere.
+          unpacked=$(find "$GITHUB_WORKSPACE/apps/kimi-desktop/dist-app" -maxdepth 1 -type d -name 'linux*-unpacked' | head -n 1)
+          echo "Using unpacked desktop app: $unpacked"
+          KIMI_DESKTOP_UNPACKED="$unpacked" /bin/sh ./get-dependencies.sh
+          KIMI_DESKTOP_UNPACKED="$unpacked" /bin/sh ./make-appimage.sh
 
       - name: Upload the AppImages
         uses: actions/upload-artifact@v7
