@@ -180,16 +180,33 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
     const bridges = Array.isArray(probed.bridges) ? probed.bridges : [];
     const hasFont = sans.length > 0 && probed.fontReady === true;
     const hasBridges = bridges.includes('kimiDesktop') && bridges.includes('kimiBrowser');
-    if (hasFont && hasBridges) {
+    // Issue #1's Browser panel was offered and dead. The panel is only real if
+    // the main process is listening, the MCP server is registered with `kimi`,
+    // and the renderer has somewhere to put the page.
+    const hasBrowserBridge = probed.browserBridge === true;
+    const hasMcp = probed.mcpRegistered === true;
+    const hasSurface = probed.surface === true;
+    // Both halves existing is not enough: the address `kimi` will call has to
+    // be the one this process is listening on.
+    const hasEndpoint =
+      /^http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(String(probed.browserEndpoint ?? '')) &&
+      probed.browserEndpoint === probed.mcpEndpoint;
+    if (hasFont && hasBridges && hasBrowserBridge && hasMcp && hasSurface && hasEndpoint) {
       return [
         label,
         true,
-        `${output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''}; sans -> ${sans}; bridges: ${bridges.join(', ')}`,
+        `${output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''}; sans -> ${sans}; bridges: ${bridges.join(', ')}; desktop_browser MCP on ${String(probed.browserEndpoint ?? '?')}`,
       ];
     }
     const why = [
       hasFont ? null : `no resolvable sans family (${sans || 'none'})`,
       hasBridges ? null : `preload bridges missing (${bridges.join(', ') || 'none'})`,
+      hasBrowserBridge ? null : 'browser bridge not listening',
+      hasMcp ? null : 'desktop_browser MCP server not registered',
+      hasSurface ? null : 'no renderer surface for the panel to mount',
+      hasEndpoint
+        ? null
+        : `MCP endpoint mismatch (serving ${String(probed.browserEndpoint ?? 'none')}, registered ${String(probed.mcpEndpoint ?? 'none')})`,
       probed.title === undefined ? 'no document title' : null,
     ].filter((v) => v !== null);
     return [label, false, `connected but the window did not render: ${why.join('; ')}`];

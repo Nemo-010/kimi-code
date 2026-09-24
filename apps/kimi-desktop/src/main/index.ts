@@ -4,6 +4,10 @@ import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 
+import { BrowserEngine } from './browser-engine';
+import { removeBrowserToken, startBrowserHttp, type BrowserHttpServer } from './browser-http';
+import { RemoteBrowserSurface } from './browser-surface';
+import { registerBrowserMcp, unregisterBrowserMcp } from './ensure-browser-mcp';
 import { ensureServer, kimiHome, serverLogPath, stopServer } from './ensure-server';
 import { resolveSeaPath } from './sea-path';
 
@@ -45,6 +49,17 @@ function configureFonts(): void {
 
 /** Absolute path to the preload bundle, emitted next to the main bundle. */
 const preload = join(__dirname, 'preload', 'index.cjs');
+
+/** Tabs the renderer has mounted, keyed by tab id. */
+const surfaces = new Map<string, RemoteBrowserSurface>();
+let engine: BrowserEngine | undefined;
+let browserHost: BrowserHttpServer | undefined;
+/** Pending surface requests, answered by the preload over IPC. */
+const pendingSurfaceCalls = new Map<
+  string,
+  { resolve: (value: unknown) => void; reject: (error: Error) => void }
+>();
+let surfaceCallCounter = 0;
 
 let mainWindow: BrowserWindow | null = null;
 /** Server started by this process, reaped on quit. Reused servers stay alive. */
@@ -380,11 +395,35 @@ function installUiProbe(win: BrowserWindow): void {
               const computed = getComputedStyle(document.body).fontFamily || '';
               sans = computed.split(',')[0].replace(/["']/g, '').trim();
             } catch {}
-            return { title: document.title, bridges, fontReady: ready, sans, url: location.origin };
+            const surface = window.kimiBrowserSurface;
+            return {
+              title: document.title,
+              bridges,
+              fontReady: ready,
+              sans,
+              url: location.origin,
+              browser: window.kimiBrowser ? { available: Boolean(window.kimiBrowser.available) } : null,
+              surface: surface ? typeof surface.execute === 'function' : false,
+            };
           })();`,
         )
         .then((result: unknown) => {
-          writeFileSync(target, JSON.stringify(result));
+          // The browser bridge is not part of the page; fold in what only the
+          // main process knows so the verifier sees one complete picture.
+          const merged =
+            typeof result === 'object' && result !== null
+              ? {
+                  ...(result as Record<string, unknown>),
+                  browserBridge: browserHost !== undefined,
+                  browserEndpoint: browserHost?.url ?? '',
+                  mcpRegistered: readRegisteredBrowserMcp(kimiHome()),
+                  // The entry `kimi` reads and the endpoint this process serves
+                  // must be the same address, or the agent's browser tool
+                  // reaches nothing even though both halves exist.
+                  mcpEndpoint: readRegisteredBrowserEndpoint(kimiHome()),
+                }
+              : result;
+          writeFileSync(target, JSON.stringify(merged));
         })
         .catch(() => {
           // The probe is a release smoke aid; never let it take the window down.
@@ -415,10 +454,60 @@ function installBridge(): void {
   });
   ipcMain.on('kimi-browser:event', (_event, payload: unknown) => {
     if (typeof payload !== 'object' || payload === null) return;
-    // The Browser panel is not implemented by this shell yet; log what the page
-    // asks for instead of dropping it silently, so the gap is visible in the
-    // terminal when someone runs the AppImage from one.
-    process.stdout.write(`[kimi-desktop] browser event ${JSON.stringify(payload)}\n`);
+    const event = payload as { browserId?: unknown; type?: unknown; data?: unknown };
+    const browserId = typeof event.browserId === 'string' ? event.browserId : undefined;
+    const type = typeof event.type === 'string' ? event.type : '';
+    const data = (event.data ?? {}) as Record<string, unknown>;
+    const surface = browserId === undefined ? undefined : surfaces.get(browserId);
+    if (surface !== undefined) {
+      surface.observe({
+        url: typeof data['url'] === 'string' ? data['url'] : surface.url(),
+        title: typeof data['title'] === 'string' ? data['title'] : surface.title(),
+        loading: type === 'did-start-loading' ? true : type === 'did-stop-loading' ? false : surface.loading(),
+        canGoBack: surface.canGoBack(),
+        canGoForward: surface.canGoForward(),
+      });
+      engine?.setActiveTab(browserId);
+    }
+    // The renderer asks for a tab to exist through these events; the engine
+    // answers over the socket, so nothing has to be done here beyond state.
+  });
+
+  ipcMain.on('kimi-browser:takeover', (_event, payload: unknown) => {
+    const browserId = (payload as { browserId?: unknown } | null)?.browserId;
+    if (typeof browserId === 'string') engine?.markUserTakeover();
+  });
+
+  // The preload answers surface requests here: it is the only place a
+  // <webview> can be dereferenced.
+  ipcMain.on('kimi-browser:surface-response', (_event, payload: unknown) => {
+    const { requestId, value } = (payload ?? {}) as { requestId?: unknown; value?: unknown };
+    if (typeof requestId !== 'string') return;
+    const pending = pendingSurfaceCalls.get(requestId);
+    if (pending === undefined) return;
+    pendingSurfaceCalls.delete(requestId);
+    pending.resolve(value);
+  });
+
+  ipcMain.on('kimi-browser:surface-register', (_event, payload: unknown) => {
+    const { browserId, request } = (payload ?? {}) as { browserId?: unknown; request?: unknown };
+    if (typeof browserId !== 'string' || typeof request !== 'object' || request === null) return;
+    if (surfaces.has(browserId)) return;
+    const surface = new RemoteBrowserSurface(
+      browserId,
+      { request: rendererTransport },
+      () => {
+        // Bounds are the renderer's business; it already applied them.
+      },
+    );
+    surfaces.set(browserId, surface);
+    engine?.setActiveTab(browserId);
+  });
+
+  ipcMain.on('kimi-browser:surface-unregister', (_event, payload: unknown) => {
+    const browserId = (payload as { browserId?: unknown } | null)?.browserId;
+    if (typeof browserId !== 'string') return;
+    surfaces.delete(browserId);
   });
   ipcMain.on('kimi-desktop:show-window', () => {
     if (mainWindow === null || mainWindow.isDestroyed()) return;
@@ -437,6 +526,91 @@ function installBridge(): void {
   });
 }
 
+/** The `url` in the `desktop_browser` entry, if the desktop wrote one. */
+function readRegisteredBrowserEndpoint(home: string): string {
+  try {
+    const parsed = JSON.parse(readFileSync(join(home, 'mcp.json'), 'utf-8')) as {
+      mcpServers?: Record<string, { url?: unknown }>;
+    };
+    const entry = parsed.mcpServers?.['desktop_browser'];
+    return typeof entry?.url === 'string' ? entry.url : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Whether the `desktop_browser` entry is present in the user's mcp.json. */
+function readRegisteredBrowserMcp(home: string): boolean {
+  try {
+    const parsed = JSON.parse(readFileSync(join(home, 'mcp.json'), 'utf-8')) as {
+      mcpServers?: Record<string, unknown>;
+    };
+    return parsed.mcpServers?.['desktop_browser'] !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/** Ask the renderer to run an operation against one of its <webview> surfaces. */
+function rendererTransport(tabId: string, request: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    if (mainWindow === null || mainWindow.isDestroyed()) {
+      reject(new Error('The window is gone.'));
+      return;
+    }
+    surfaceCallCounter += 1;
+    const requestId = `s${surfaceCallCounter}`;
+    pendingSurfaceCalls.set(requestId, { resolve, reject });
+    mainWindow.webContents.send('kimi-browser:surface-request', { requestId, tabId, request });
+    setTimeout(() => {
+      const pending = pendingSurfaceCalls.get(requestId);
+      if (pending === undefined) return;
+      pendingSurfaceCalls.delete(requestId);
+      reject(new Error('The window did not answer in time.'));
+    }, 30_000);
+  });
+}
+
+/** Start the socket the `desktop_browser` MCP server calls into. */
+async function startBrowser(): Promise<void> {
+  engine = new BrowserEngine({
+    surfaces: () => [...surfaces.values()],
+    showPanel: () => {
+      // The web UI opens its own panel; the shell only brings the window up.
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    },
+    deviceProfiles: () => DEVICE_PROFILES,
+    history: () => [],
+    downloads: () => [],
+    notify: () => {
+      for (const surface of surfaces.values()) surface.observe({});
+    },
+  });
+  const running: BrowserEngine = engine;
+  browserHost = await startBrowserHttp({
+    kimiHome: kimiHome(),
+    run: (request) => running.run(request),
+  });
+  registerBrowserMcp({
+    kimiHome: kimiHome(),
+    url: browserHost.url,
+    token: browserHost.token,
+  });
+}
+
+/** Device presets the panel's device toolbar offers. */
+const DEVICE_PROFILES = [
+  { profileId: 'iphone-16-pro', label: 'iPhone 16 Pro', width: 402, height: 874, deviceScaleFactor: 3, mobile: true, touch: true },
+  { profileId: 'pixel-9', label: 'Pixel 9', width: 412, height: 923, deviceScaleFactor: 2.6, mobile: true, touch: true },
+  { profileId: 'ipad-pro-13', label: 'iPad Pro 13', width: 1024, height: 1366, deviceScaleFactor: 2, mobile: true, touch: true },
+  { profileId: 'desktop-1280', label: 'Desktop 1280 x 800', width: 1280, height: 800, deviceScaleFactor: 1, mobile: false, touch: false },
+  { profileId: 'desktop-1440', label: 'Desktop 1440 x 900', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false, touch: false },
+  { profileId: 'desktop-1920', label: 'Desktop 1920 x 1080', width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false, touch: false },
+] as const;
+
 // --- app lifecycle ------------------------------------------------------------
 
 function main(): void {
@@ -452,12 +626,27 @@ function main(): void {
   app.on('before-quit', () => {
     stopServer(spawnedChild);
     spawnedChild = undefined;
+    browserHost?.close();
+    browserHost = undefined;
+    removeBrowserToken(kimiHome());
+    // Leaving the entry behind would point the CLI at a port that no longer
+    // exists, which reads as a broken browser rather than an absent one.
+    unregisterBrowserMcp(kimiHome());
   });
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
     configureFonts();
     installBridge();
     buildMenu();
+    try {
+      await startBrowser();
+    } catch (error) {
+      // A browser that cannot start must not take the whole client down: the
+      // rest of the desktop works without it.
+      process.stderr.write(
+        `[kimi-desktop] browser bridge failed to start: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

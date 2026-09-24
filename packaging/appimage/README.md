@@ -29,6 +29,30 @@ staging the app) and a `make-appimage.sh` (`quick-sharun` + `--make-appimage`).
 - The Electron AppImage bundles the Electron runtime (Chromium). There is no way
   around that for the desktop client; the CLI AppImage has no Electron bloat.
 
+## The Browser panel and the agent's browser tool
+
+The commit that produced issue #1 shipped a desktop with no preload and no IPC.
+The web UI is the shared Kimi front end, so it offered a Browser panel and
+probed for `window.kimiDesktop` / `window.kimiBrowser`; both were `undefined` and
+the panel was offered-but-dead. The shell now provides them:
+
+- `apps/kimi-desktop/src/preload/index.ts` builds the browser surface from masked
+  `<webview>` tags. `BrowserView` cannot be masked, moved or occluded by the page,
+  so it cannot back a panel.
+- `apps/kimi-desktop/src/main/browser-engine.ts` implements the
+  `kimi.browser/1.0.0` operations and `browser-mcp.ts` + `browser-http.ts` expose
+  them as the `desktop_browser` MCP server, over Streamable HTTP on loopback.
+  The web bundle renders the tool as `mcp__desktop_browser__run`; if either half
+  of that name changes, the panel silently loses its renderer.
+- The transport is HTTP rather than stdio on purpose. **The AppImage ships no
+  Node interpreter**: its only executable is Electron, whose path lives inside
+  the AppImage mount, so a stdio MCP entry could never be spawned. The main
+  process serves the protocol itself and writes the endpoint (with a bearer
+  token, `chmod 600`) into `<KIMI_CODE_HOME>/mcp.json` on launch.
+
+The token is in that file, so it must stay owner-only; the endpoint binds
+`127.0.0.1` so the browser is never reachable from the network.
+
 ## Fonts (desktop only)
 
 `quick-sharun` copies `/etc/fonts/fonts.conf` into the AppDir but not its

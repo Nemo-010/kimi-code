@@ -1,21 +1,21 @@
 // Preload for the Kimi Code Desktop shell.
 //
 // The renderer is the shared Kimi web UI, which was written for the closed
-// code-app shell. Two of the APIs that shell used to expose are implemented
-// here, because the renderer silently degrades without them:
+// code-app shell. Three APIs it uses are implemented here, because it silently
+// degrades without them:
 //
 //   - `window.kimiDesktop.setTheme` — the macOS window appearance follows the
-//     web UI's colour scheme. The main process used to get this from a tagged
-//     `console-message` plus injected JavaScript; with a preload it is a direct
-//     call.
-//   - `window.kimiBrowser` — the Browser panel that shows up in the quick open
-//     list on macOS. `BrowserView` cannot be masked, displayed, resized or
-//     scrolled from the page, so the preload builds the surface out of masked
-//     `<webview>` tags and keeps their bounds in sync with placeholder
-//     elements, which is what the panel needs to be able to clip, scroll and
-//     occlude it.
+//     web UI's colour scheme.
+//   - `window.kimiBrowser` — the Browser panel. `BrowserView` cannot be masked,
+//     displayed, resized, scrolled or occluded from the page, so the surface is
+//     built out of masked `<webview>` tags and their bounds are kept in sync
+//     with placeholder elements.
+//   - `window.kimiBrowserSurface` — the privileged half the main process calls
+//     when the agent drives the same tabs over MCP. It exposes the surface
+//     operations (navigate, evaluate, capture) that a page cannot do for
+//     itself, keyed by tab id, and is only ever called from the main process.
 //
-// Everything crossing this bridge is validated here: the renderer is the web
+// Everything crossing these bridges is validated here: the renderer is the web
 // UI, but it still renders model output, so nothing is trusted.
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
@@ -57,6 +57,11 @@ type Surface = HTMLElement & {
   goForward(): void;
   reload(): void;
   stop(): void;
+  isLoading(): boolean;
+  getURL(): string;
+  getTitle(): string;
+  executeJavaScript(code: string): Promise<unknown>;
+  capturePage(): Promise<{ toDataURL(): string }>;
   __kimiVisible: boolean;
 };
 
@@ -71,7 +76,7 @@ function createSurface(browserId: string): Surface {
   const view = document.createElement('webview') as unknown as Surface;
   view.__kimiVisible = false;
   view.className = 'kimi-browser-surface';
-  view.setAttribute('data-kimi-browser-id', browserId);
+  view.dataset['kimiBrowserId'] = browserId;
   Object.assign(view.style, {
     position: 'fixed',
     border: '0',
@@ -89,6 +94,17 @@ function createSurface(browserId: string): Surface {
       data: { errorCode: detail.errorCode ?? 0, url: detail.validatedURL ?? '' },
     });
   });
+  // Every navigation and title change is reported so the transcript and the
+  // panel agree about which page the agent touched.
+  for (const type of ['did-start-loading', 'did-stop-loading', 'did-navigate', 'page-title-updated']) {
+    view.addEventListener(type, () => {
+      send('kimi-browser:event', {
+        browserId,
+        type,
+        data: { url: view.getURL(), title: view.getTitle() },
+      });
+    });
+  }
   document.body.append(view);
   surfaces.set(browserId, view);
   return view;
@@ -126,7 +142,7 @@ function scheduleResize(): void {
       if (!view.__kimiVisible) continue;
       const box = view.getBoundingClientRect();
       send('kimi-browser:event', {
-        browserId: view.getAttribute('data-kimi-browser-id') ?? '',
+        browserId: view.dataset['kimiBrowserId'] ?? '',
         type: 'bounds-lost',
         data: { x: box.x, y: box.y, width: box.width, height: box.height },
       });
@@ -180,17 +196,20 @@ const kimiBrowser = {
   },
 
   reload(browserId: unknown): void {
-    const view = surfaces.get(asId(browserId) ?? '');
-    view?.reload();
+    surfaces.get(asId(browserId) ?? '')?.reload();
   },
 
   stop(browserId: unknown): void {
-    const view = surfaces.get(asId(browserId) ?? '');
-    view?.stop();
+    surfaces.get(asId(browserId) ?? '')?.stop();
   },
 
   focus(browserId: unknown): void {
     surfaces.get(asId(browserId) ?? '')?.focus();
+  },
+
+  takeover(browserId: unknown): void {
+    const id = asId(browserId);
+    if (id !== null) send('kimi-browser:takeover', { browserId: id });
   },
 
   onEvent(callback: unknown): () => void {
@@ -206,12 +225,65 @@ const kimiBrowser = {
   },
 
   setTheme(theme: unknown): boolean {
-    const value =
-      theme === 'light' || theme === 'dark' || theme === 'system' ? theme : 'system';
+    const value = theme === 'light' || theme === 'dark' || theme === 'system' ? theme : 'system';
     send('kimi-browser:theme', { theme: value });
     return true;
   },
 };
+
+/**
+ * The privileged surface API the main process calls when the agent drives a
+ * tab. The renderer is where the `<webview>` lives, so only the renderer can
+ * dereference it; the main process sends a request and waits for the answer.
+ *
+ * `handlers` is kept in the preload's own scope and never exposed to the page:
+ * the page can ask for a tab to be created, but it cannot evaluate arbitrary
+ * script in another tab through this channel.
+ */
+const handlers = new Map<string, (request: Record<string, unknown>) => unknown>();
+
+function surfaceRequest(request: Record<string, unknown>): unknown {
+  const id = asId(request['tabId']);
+  if (id === null) return { ok: false, error: { code: 'TAB_NOT_FOUND', message: 'No such tab.' } };
+  const handler = handlers.get(id);
+  if (handler === undefined) {
+    return { ok: false, error: { code: 'TAB_NOT_FOUND', message: `No tab ${id}.` } };
+  }
+  return handler(request);
+}
+
+const kimiBrowserSurface = {
+  /** Called by the panel when it mounts a surface element. */
+  attach(browserId: unknown, bound: unknown): boolean {
+    const id = asId(browserId);
+    if (id === null || typeof bound !== 'function') return false;
+    handlers.set(id, bound as (request: Record<string, unknown>) => unknown);
+    return true;
+  },
+
+  detach(browserId: unknown): void {
+    const id = asId(browserId);
+    if (id !== null) handlers.delete(id);
+  },
+
+  /** The main process calls this to run an engine request against a surface. */
+  execute(browserId: unknown, request: unknown): unknown {
+    const id = asId(browserId);
+    if (id === null || typeof request !== 'object' || request === null) return null;
+    const handler = handlers.get(id);
+    if (handler === undefined) return null;
+    return handler(request as Record<string, unknown>);
+  },
+};
+
+ipcRenderer.on('kimi-browser:surface-request', (event, payload: unknown) => {
+  if (typeof payload !== 'object' || payload === null) return;
+  const { requestId, request } = payload as { requestId?: unknown; request?: unknown };
+  if (typeof requestId !== 'string' || typeof request !== 'object' || request === null) return;
+  void Promise.resolve(surfaceRequest(request as Record<string, unknown>)).then((value) => {
+    event.sender.send('kimi-browser:surface-response', { requestId, value });
+  });
+});
 
 const kimiDesktop = {
   platform: process.platform,
@@ -250,3 +322,4 @@ if (document.readyState === 'loading') {
 
 contextBridge.exposeInMainWorld('kimiDesktop', kimiDesktop);
 contextBridge.exposeInMainWorld('kimiBrowser', kimiBrowser);
+contextBridge.exposeInMainWorld('kimiBrowserSurface', kimiBrowserSurface);

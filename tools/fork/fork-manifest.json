@@ -162,12 +162,16 @@
     },
     {
       "id": "desktop-shell-bridge",
-      "description": "The web UI bundle probes window.kimiDesktop (showWindow/setOnboarded/onMenuAction) and offers a Browser panel backed by a browser surface. The desktop shell has to expose both, or the panel is offered and can never be opened.",
+      "description": "The web UI bundle probes window.kimiDesktop and offers a Browser panel, and it renders the agent's browser tool as mcp__desktop_browser__run (protocol kimi.browser/1.0.0). The desktop shell has to expose the preload bridges, back the panel with a maskable surface, and serve the desktop_browser MCP server itself, because the AppImage ships no Node interpreter to spawn a stdio entry.",
       "scope": "fork",
       "checks": [
         { "type": "grep", "path": "apps/kimi-code/dist-web/assets", "pattern": "kimiDesktop" },
+        { "type": "grep", "path": "apps/kimi-code/dist-web/assets", "pattern": "mcp__desktop_browser__run" },
         { "type": "grep", "path": "apps/kimi-desktop/src/preload", "pattern": "kimiBrowser" },
-        { "type": "grep", "path": "apps/kimi-desktop/src/main/index.ts", "pattern": "webviewTag" }
+        { "type": "grep", "path": "apps/kimi-desktop/src/main/index.ts", "pattern": "webviewTag" },
+        { "type": "grep", "path": "apps/kimi-desktop/src/main/browser-engine.ts", "pattern": "kimi.browser" },
+        { "type": "grep", "path": "apps/kimi-desktop/src/main/browser-http.ts", "pattern": "127.0.0.1" },
+        { "type": "grep", "path": "apps/kimi-desktop/src/main/ensure-browser-mcp.ts", "pattern": "desktop_browser" }
       ]
     }
   ]

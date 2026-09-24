@@ -482,19 +482,31 @@ old code.
   `window.kimiDesktop` / `window.kimiBrowser` probes have something to answer.
   Anything else that needs the host (tray, global shortcut, deep links, native
   file dialogs scoped to the OS) still has to be added on top of it.
-- **The Browser panel is only wired as far as the surface.** The preload can
-  create, navigate and position masked `<webview>` tags and forwards their
-  events, but the panel's own UI in the committed web bundle talks to the
-  internal shell's browser service; the agent-facing browser tools live in the
-  SEA (`kimi.browser/1.0.0`). The panel is no longer silently offered-and-dead,
-  but it is not yet a finished browser.
+- **The Browser panel and the agent's browser tool are the same tabs.** The
+  shell implements the `kimi.browser/1.0.0` operations (`browser-engine.ts`) over
+  the masked `<webview>` surfaces, and exposes them as the `desktop_browser` MCP
+  server (`browser-mcp.ts` + `browser-http.ts`). The committed web bundle already
+  renders that tool as `mcp__desktop_browser__run`, so the agent's calls and the
+  panel's view are one surface, not two.
+- **The MCP transport is HTTP, not stdio, and that is not a preference.** The
+  AppImage ships no Node interpreter — its only executable is Electron, whose
+  path is inside the AppImage mount — so there is nothing a stdio entry could
+  name. The main process serves Streamable HTTP on `127.0.0.1` and writes the
+  endpoint plus a bearer token into `<KIMI_CODE_HOME>/mcp.json` on launch (mode
+  `0600`). A stdio entry would only work where a `node` happens to exist on PATH,
+  which is exactly the case that does not ship.
 - **The daemon lifetime problem is unresolved.** "Leave it running" was correct
   when the SEA was a detached daemon; `kimi web` is foreground now and there is
   no idle shutdown. Pick a policy explicitly: reap the child on quit, or leave it
   and accept that the next launch reuses a server the user started in a terminal.
-- **No tests.** The deleted app had none — no unit tests for `ensure-server.ts`
-  or `sea-path.ts`. If you are restoring this to maintain it, add tests around
-  discovery and origin resolution, since that is the part that keeps breaking.
+- **Tests exist now** (`apps/kimi-desktop/test`): the MCP protocol surface, the
+  browser engine's operation handling, the preload bundle contract and the MCP
+  registration. `ensure-server.ts` and `sea-path.ts` still have none, and that is
+  where the discovery logic keeps breaking; add tests there next.
+- **The MCP endpoint is not exercised in this sandbox.** Binding a loopback
+  listener is denied here, so the protocol tests call the transport-free handler
+  (`handleMcpHttpRequest`) directly. The socket-level path is only covered on a
+  normal host and in CI.
 - **`desktopFlag` in the web UI is inert outside desktop.** The bundle's
   detection path is harmless when loaded in a normal browser tab, which means a
   bug in it will not show up in `kimi web`.

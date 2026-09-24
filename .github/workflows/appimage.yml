@@ -125,7 +125,9 @@ jobs:
         # A host without fontconfig renders the whole UI with no text if the
         # AppImage has no conf.d rules or no font. The preload bundle carries the
         # window bridge, and the AppRun must not force the bundled fontconfig on
-        # a host that has its own. Fail the build, not the release.
+        # a host that has its own. The browser MCP entry has to be inside the
+        # asar, executable on its own, and answer the protocol the committed web
+        # bundle renders. Fail the build, not the release.
         working-directory: packaging/appimage/kimi-desktop
         run: |
           set -eu
@@ -135,9 +137,29 @@ jobs:
           test -f squashfs-root/bin/10-fontconfig.hook
           ! grep -q 'export FONTCONFIG_PATH' squashfs-root/bin/10-fontconfig.hook
           test -f squashfs-root/bin/resources/app.asar
-          grep -aq 'kimi-browser' squashfs-root/bin/resources/app.asar
-          echo "desktop AppImage ships $(ls squashfs-root/etc/fonts/conf.d | wc -l) fontconfig rules and $(ls squashfs-root/share/fonts | wc -l) fonts"
-          rm -rf squashfs-root
+
+          npx --yes @electron/asar extract squashfs-root/bin/resources/app.asar asar-out
+          test -f asar-out/out/preload/index.cjs
+          test -f asar-out/out/main.cjs
+
+          # The Browser panel: the preload must carry the masked-webview surface
+          # and both bridge objects the committed web bundle probes for.
+          grep -aq 'createElement("webview")' asar-out/out/preload/index.cjs
+          grep -aq 'exposeInMainWorld("kimiBrowser"' asar-out/out/preload/index.cjs
+          grep -aq 'exposeInMainWorld("kimiDesktop"' asar-out/out/preload/index.cjs
+
+          # The MCP server the agent's `mcp__desktop_browser__run` tool reaches.
+          # It must be served from the main process: the AppImage ships no Node
+          # interpreter, so a stdio entry could never be spawned.
+          grep -aq 'desktop_browser' asar-out/out/main.cjs
+          grep -aq 'Streamable' asar-out/out/main.cjs || grep -aq 'mcp-session-id' asar-out/out/main.cjs
+          grep -aq 'kimi.browser/1.0.0' asar-out/out/main.cjs
+          grep -aq '127.0.0.1' asar-out/out/main.cjs
+          # No spawned interpreter may be referenced in the MCP entry writer.
+          ! grep -aq 'transport: "stdio"' asar-out/out/main.cjs
+
+          echo "desktop AppImage ships $(ls squashfs-root/etc/fonts/conf.d | wc -l) fontconfig rules, $(ls squashfs-root/share/fonts | wc -l) fonts, the masked-webview Browser panel and the desktop_browser MCP server"
+          rm -rf squashfs-root asar-out
 
       - name: Upload the AppImages
         uses: actions/upload-artifact@v7
