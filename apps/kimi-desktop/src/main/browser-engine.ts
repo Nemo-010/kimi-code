@@ -259,6 +259,15 @@ export class BrowserEngine {
     return this.host.surfaces().find((s) => s.id === tabId);
   }
 
+  /** Read a `{x, y}` point, or null when the request does not carry one. */
+  private point(value: unknown): { x: number; y: number } | null {
+    if (typeof value !== 'object' || value === null) return null;
+    const { x, y } = value as { x?: unknown; y?: unknown };
+    if (typeof x !== 'number' || typeof y !== 'number') return null;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+
   private requireSurface(tabId: unknown): BrowserSurface | BrowserResponse {
     const surface = this.surface(tabId);
     return surface ?? browserError('TAB_NOT_FOUND', 'No such tab.');
@@ -664,7 +673,35 @@ export class BrowserEngine {
         return browserOk({ keys });
       }
       case 'page.visual.drag': {
-        return browserOk({ from: request['from'] ?? null, to: request['to'] ?? null });
+        // A real drag: press at `from`, move along the path, release at `to`.
+        // Reporting the endpoints without touching the page would tell the
+        // agent a drag happened when nothing moved.
+        const from = this.point(request['from']);
+        const to = this.point(request['to']);
+        if (from === null || to === null) {
+          return browserError('INVALID_REQUEST', 'from and to are required points.');
+        }
+        const steps = 8;
+        await surface.evaluate(
+          `(() => {
+            const from = ${JSON.stringify(from)};
+            const to = ${JSON.stringify(to)};
+            const steps = ${steps};
+            const at = (point) => document.elementFromPoint(point.x, point.y) ?? document.body;
+            const fire = (type, point, target) => target.dispatchEvent(new MouseEvent(type, {
+              bubbles: true, cancelable: true, clientX: point.x, clientY: point.y, buttons: 1,
+            }));
+            const start = at(from);
+            fire('mousedown', from, start);
+            for (let i = 1; i <= steps; i += 1) {
+              const point = { x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps };
+              fire('mousemove', point, at(point));
+            }
+            fire('mouseup', to, at(to));
+            return true;
+          })()`,
+        );
+        return browserOk({ from, to });
       }
       default:
         return browserError('INVALID_REQUEST', `Unsupported operation: ${String(operation)}`);

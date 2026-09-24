@@ -210,6 +210,35 @@ describe('BrowserEngine', () => {
     expect(response.error.code).toBe('ELEMENT_NOT_FOUND');
   });
 
+  it('performs a drag instead of only reporting its endpoints', async () => {
+    // A drag that returns {from, to} without touching the page tells the agent
+    // something happened when nothing moved.
+    const scripts: string[] = [];
+    const surface = new FakeSurface('t1', (script) => {
+      scripts.push(script);
+      return true;
+    });
+    const { engine } = makeEngine(surface);
+    const response = await engine.run(request({ operation: 'page.visual.drag', from: { x: 1, y: 2 }, to: { x: 30, y: 40 } }));
+    expect(response.ok).toBe(true);
+    const script = scripts.join('\n');
+    expect(script).toContain('mousedown');
+    expect(script).toContain('mousemove');
+    expect(script).toContain('mouseup');
+    expect(script).toContain('"x":1');
+    expect(script).toContain('"x":30');
+  });
+
+  it('rejects a drag without two usable points', async () => {
+    const { engine } = makeEngine(new FakeSurface('t1'));
+    for (const partial of [{}, { from: { x: 1, y: 2 } }, { from: { x: 'a' }, to: { x: 1, y: 1 } }]) {
+      const response = await engine.run(request({ operation: 'page.visual.drag', ...partial } as never));
+      expect(response.ok).toBe(false);
+      if (response.ok) throw new Error('expected a failure');
+      expect(response.error.code).toBe('INVALID_REQUEST');
+    }
+  });
+
   it('refuses a click outside the viewport', async () => {
     const surface = new FakeSurface('t1', () => page());
     const { engine } = makeEngine(surface);
