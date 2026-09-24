@@ -158,6 +158,16 @@ jobs:
           grep -aq '127.0.0.1' asar-out/out/main.cjs
           # No spawned interpreter may be referenced in the MCP entry writer.
           ! grep -aq 'transport: "stdio"' asar-out/out/main.cjs
+          # The browser drives a real page: a drag has to dispatch mouse events,
+          # and the surface operations have to reach the tab they name.
+          grep -aq 'mousedown' asar-out/out/main.cjs
+          grep -aq 'setDevice' asar-out/out/main.cjs
+          grep -aq 'enableDeviceEmulation' asar-out/out/main.cjs
+
+          # Bridge members the shipped web bundle gates features on: without
+          # getPathForFile the composer silently drops dropped files.
+          grep -aq 'getPathForFile' asar-out/out/preload/index.cjs
+          grep -aq 'setOnboarded' asar-out/out/preload/index.cjs
 
           # The Terminal panel. The shipped web bundle has no terminal of its
           # own, so the shell provides one; it must speak the daemon's terminal
