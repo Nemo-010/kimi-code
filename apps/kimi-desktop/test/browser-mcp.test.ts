@@ -76,6 +76,25 @@ describe('desktop_browser over MCP', () => {
     expect(schema.properties.operation.enum).toStrictEqual([...BROWSER_OPERATIONS]);
   });
 
+  it('answers an invalid entry in a batch instead of dropping it', async () => {
+    // A silent drop shortens the reply, so a client batching [1, <request>]
+    // cannot line the answers up with what it sent.
+    const reply = await handleMcpHttpRequest(
+      {
+        method: 'POST',
+        path: '/mcp',
+        authorization: `Bearer ${TOKEN}`,
+        body: JSON.stringify([1, { jsonrpc: '2.0', id: 2, method: 'ping' }]),
+      },
+      { token: TOKEN, run: () => Promise.resolve(browserOk({})), log: () => undefined },
+    );
+    expect(reply.status).toBe(200);
+    const answers = JSON.parse(reply.body) as { error?: { code?: number }; result?: unknown }[];
+    expect(answers).toHaveLength(2);
+    expect(answers[0]?.error?.code).toBe(-32600);
+    expect(answers[1]?.result).toStrictEqual({});
+  });
+
   it('initializes as a tools-only server', async () => {
     const { status, json } = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     expect(status).toBe(200);

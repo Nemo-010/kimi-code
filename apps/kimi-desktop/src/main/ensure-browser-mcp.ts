@@ -14,7 +14,7 @@
 // only executable is Electron, whose path is inside the AppImage mount. The
 // main process serves the protocol itself (browser-http.ts) and the entry
 // carries the loopback URL and the bearer token that reaches it.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { MCP_SERVER_NAME } from './browser-mcp';
@@ -89,6 +89,7 @@ export function registerBrowserMcp(options: RegisterBrowserOptions): void {
   const temporary = `${path}.tmp-${process.pid}`;
   // The token is in this file, so it must never be group- or world-readable.
   writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(temporary, 0o600);
   // Rename so a crash mid-write cannot leave a half-written mcp.json, which
   // would take every other MCP server down with it.
   renameSync(temporary, path);
@@ -119,5 +120,8 @@ export function unregisterBrowserMcp(kimiHome: string): void {
   delete next[MCP_SERVER_NAME];
   // Write an empty file rather than deleting: the update lands immediately and
   // a reader that races this cannot resurrect the old endpoint.
+  // This one rewrites a file the daemon owns, so it already exists and `mode`
+  // does nothing; the chmod is what actually keeps the bearer header private.
   writeFileSync(path, `${JSON.stringify({ ...document, mcpServers: next }, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
 }

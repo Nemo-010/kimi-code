@@ -8,7 +8,7 @@
 // the endpoint is on loopback with a token only this app knows.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { MCP_SERVER_NAME, dispatch, type BrowserRequestHandler, type JsonRpcRequest } from './browser-mcp';
@@ -41,7 +41,14 @@ export function ensureBrowserToken(kimiHome: string): string {
   const path = tokenPath(kimiHome);
   try {
     const existing = readFileSync(path, 'utf-8').trim();
-    if (existing.length >= 32) return existing;
+    if (existing.length >= 32) {
+      // `mode` only applies when a file is created, so a token written by an
+      // earlier build (or by hand) would keep whatever permissions it had and
+      // stay readable by every user on the machine. The file grants access to
+      // the browser, so its mode is re-asserted on every read.
+      chmodSync(path, 0o600);
+      return existing;
+    }
   } catch {
     // First run, or the user cleared it.
   }
@@ -149,7 +156,17 @@ export async function handleMcpHttpRequest(
   const requests = Array.isArray(parsed) ? parsed : [parsed];
   const answers: unknown[] = [];
   for (const entry of requests) {
-    if (typeof entry !== 'object' || entry === null) continue;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      // JSON-RPC requires an error for every entry that is not a request
+      // object. Dropping it silently shortens the reply, so a client batching
+      // `[1, <valid request>]` cannot line the answers up with what it sent.
+      answers.push({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32600, message: 'Invalid Request' },
+      });
+      continue;
+    }
     const answer = await dispatch(entry as JsonRpcRequest, { run: options.run, log: options.log });
     if (answer !== undefined) answers.push(answer);
   }
