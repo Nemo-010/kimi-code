@@ -9,6 +9,10 @@ name: Continuous Release
 on:
   push:
     branches: [main]
+    # Documentation cannot change an artifact, so a docs-only push should not
+    # rebuild and republish the whole release.
+    paths-ignore:
+      - '**/*.md'
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:

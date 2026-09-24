@@ -151,9 +151,9 @@ gh workflow run CI -R Nemo-010/kimi-code
 
 Native binaries, desktop installers and Linux AppImages are attached to this
 fork's GitHub Releases, built from `main` with the commands in [Build](#build).
-The latest versioned release is
-[`v2.1.0-fork.2`](https://github.com/Nemo-010/kimi-code/releases/tag/v2.1.0-fork.2),
-and a rolling pre-release of `main` is kept at
+The latest versioned release is on the
+[releases page](https://github.com/Nemo-010/kimi-code/releases/latest), and a
+rolling pre-release of `main` is kept at
 [`continuous`](https://github.com/Nemo-010/kimi-code/releases/tag/continuous).
 
 - `kimi-code-<target>.zip` (+ `.sha256`) — Node SEA single executable for
