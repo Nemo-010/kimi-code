@@ -94,11 +94,22 @@ async function guiSmoke(squash, dir) {
   const name = 'desktop AppImage GUI (dummy display)';
   if (!hasCommand('xvfb-run')) return [name, true, 'skipped: no xvfb-run'];
   const home = mkdtempSync(join(dir, 'home-'));
-  const child = spawn('xvfb-run', ['-a', join(squash, 'AppRun'), '--no-sandbox'], {
-    env: { ...process.env, KIMI_CODE_HOME: home, ELECTRON_DISABLE_SANDBOX: '1' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: true,
-  });
+  const child = spawn(
+    'xvfb-run',
+    [
+      '-a',
+      join(squash, 'AppRun'),
+      '--no-sandbox',
+      '--disable-gpu',
+      // GitHub runners have a tiny /dev/shm; keep Chromium out of it.
+      '--disable-dev-shm-usage',
+    ],
+    {
+      env: { ...process.env, KIMI_CODE_HOME: home, ELECTRON_DISABLE_SANDBOX: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
+    },
+  );
   let output = '';
   child.stdout.on('data', (chunk) => {
     output += chunk.toString();
@@ -106,7 +117,7 @@ async function guiSmoke(squash, dir) {
   child.stderr.on('data', (chunk) => {
     output += chunk.toString();
   });
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 90_000;
   let connected = false;
   while (Date.now() < deadline) {
     if (output.includes('[kimi-desktop] connected to')) {
@@ -174,7 +185,11 @@ async function runSmoke(repo, tag, arch, dir) {
       } else {
         const backend = sh(join(squash, 'bin', 'kimi'), ['--version']);
         record(`${appimage} bundled kimi --version`, /^\d+\.\d+\.\d+/.test(backend), backend);
-        const electron = sh(target, ['--version']);
+        // The extracted AppDir's chrome-sandbox is not setuid root, so the
+        // Chromium sandbox has to be off for this direct launch.
+        const electron = sh(target, ['--no-sandbox', '--version'], {
+          env: { ...process.env, ELECTRON_DISABLE_SANDBOX: '1' },
+        });
         record(`${appimage} electron --version`, /^v?\d+\./.test(electron), electron);
         record(...(await guiSmoke(squash, dir)));
       }
