@@ -127,7 +127,8 @@ jobs:
         # window bridge, and the AppRun must not force the bundled fontconfig on
         # a host that has its own. The browser MCP entry has to be inside the
         # asar, executable on its own, and answer the protocol the committed web
-        # bundle renders. Fail the build, not the release.
+        # bundle renders. The Terminal panel is the shell's own, because the web
+        # bundle in this repo has none. Fail the build, not the release.
         working-directory: packaging/appimage/kimi-desktop
         run: |
           set -eu
@@ -158,7 +159,19 @@ jobs:
           # No spawned interpreter may be referenced in the MCP entry writer.
           ! grep -aq 'transport: "stdio"' asar-out/out/main.cjs
 
-          echo "desktop AppImage ships $(ls squashfs-root/etc/fonts/conf.d | wc -l) fontconfig rules, $(ls squashfs-root/share/fonts | wc -l) fonts, the masked-webview Browser panel and the desktop_browser MCP server"
+          # The Terminal panel. The shipped web bundle has no terminal of its
+          # own, so the shell provides one; it must speak the daemon's terminal
+          # protocol and carry the panel itself, or the panel is decoration.
+          grep -aq 'terminal_attach' asar-out/out/preload/index.cjs
+          grep -aq 'terminal_input' asar-out/out/preload/index.cjs
+          grep -aq 'terminal_resize' asar-out/out/preload/index.cjs
+          grep -aq 'terminal_output' asar-out/out/preload/index.cjs
+          grep -aq 'kimi-code.bearer.' asar-out/out/preload/index.cjs
+          grep -aq 'api/v1/ws' asar-out/out/preload/index.cjs
+          grep -aq 'kimi-terminal-panel' asar-out/out/preload/index.cjs
+          grep -aq 'kimi-terminal:toggle' asar-out/out/main.cjs
+
+          echo "desktop AppImage ships $(ls squashfs-root/etc/fonts/conf.d | wc -l) fontconfig rules, $(ls squashfs-root/share/fonts | wc -l) fonts, the masked-webview Browser panel, the Terminal panel and the desktop_browser MCP server"
           rm -rf squashfs-root asar-out
 
       - name: Upload the AppImages

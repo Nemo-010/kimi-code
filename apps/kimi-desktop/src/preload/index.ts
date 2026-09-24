@@ -20,6 +20,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { IpcRendererEvent } from 'electron';
 
+import { TerminalPanel, readCredential } from '../renderer/terminal-panel';
+
 const MAX_URL_LENGTH = 4096;
 const MAX_TITLE_LENGTH = 512;
 const MAX_ID_LENGTH = 128;
@@ -312,6 +314,10 @@ const kimiDesktop = {
   platform: process.platform,
   version: process.versions.electron,
   setTheme: kimiBrowser.setTheme,
+  /** Open or close the Terminal panel; bound to Ctrl/Cmd+` in the main process. */
+  toggleTerminal: (): void => {
+    ipcRenderer.send('kimi-terminal:toggle-request', {});
+  },
   showWindow: (): void => send('kimi-desktop:show-window', {}),
   onMenuAction: (callback: unknown): (() => void) => {
     if (typeof callback !== 'function') return () => undefined;
@@ -342,6 +348,59 @@ if (document.readyState === 'loading') {
 } else {
   bridge();
 }
+
+// --- terminal -----------------------------------------------------------------
+//
+// The web bundle in this repo has no terminal: its harness was removed and
+// `xterm` has zero hits in it, though the daemon still serves terminals and
+// bundles node-pty. The panel here speaks the daemon's own REST + WebSocket
+// protocol, so the terminal is the daemon's PTY and the same one the agent sees.
+//
+// The credential is read from the store the web UI itself uses
+// (`kimi-web.server-credential`), so there is one token, not a second one.
+
+let terminal: TerminalPanel | undefined;
+
+function terminalPanel(): TerminalPanel {
+  if (terminal !== undefined) return terminal;
+  terminal = new TerminalPanel({
+    origin: window.location.origin,
+    // The page receives its credential after the panel is mounted, so read it
+    // per request rather than once.
+    token: readCredential,
+  });
+  terminal.install();
+  return terminal;
+}
+
+/** Create the (hidden) panel up front, so it is mounted and ready to toggle. */
+function mountTerminal(): void {
+  if (document.body === null) {
+    window.addEventListener('DOMContentLoaded', mountTerminal, { once: true });
+    return;
+  }
+  terminalPanel();
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', mountTerminal, { once: true });
+} else {
+  mountTerminal();
+}
+
+// The main process binds the accelerator (the page would otherwise swallow it)
+// and relays the toggle here.
+ipcRenderer.on('kimi-terminal:toggle', () => {
+  void (async () => {
+    const panel = terminalPanel();
+    const opening = panel.toggle();
+    if (!opening) return;
+    // Only open a tab when there is not one already, so the shortcut toggles the
+    // panel rather than piling up terminals.
+    if (panel.tabCount === 0) await panel.open();
+  })();
+});
+
 
 contextBridge.exposeInMainWorld('kimiDesktop', kimiDesktop);
 contextBridge.exposeInMainWorld('kimiBrowser', kimiBrowser);

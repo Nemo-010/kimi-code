@@ -64,6 +64,8 @@ let surfaceCallCounter = 0;
 let mainWindow: BrowserWindow | null = null;
 /** Server started by this process, reaped on quit. Reused servers stay alive. */
 let spawnedChild: import('node:child_process').ChildProcess | undefined;
+/** The origin of the daemon the window is showing, once connected. */
+let serverOrigin: string | undefined;
 /** Guards against overlapping connect attempts (e.g. retry spam). */
 let connecting = false;
 
@@ -185,6 +187,7 @@ async function connect(win: BrowserWindow): Promise<void> {
     try {
       const { origin, child } = await ensureServer(resolveSeaPath());
       spawnedChild = child;
+      serverOrigin = origin;
       process.stdout.write(`[kimi-desktop] connected to ${origin}\n`);
       if (!win.isDestroyed()) {
         // Append a desktop marker so the web UI shows the internal-build banner
@@ -234,6 +237,15 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  // The web UI swallows most keystrokes, so the accelerator is also handled at
+  // the window level where the page cannot see it first.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    if (!(input.control || input.meta)) return;
+    if (input.key !== '`' && input.key !== 'Backquote') return;
+    event.preventDefault();
+    if (!win.isDestroyed()) win.webContents.send('kimi-terminal:toggle', {});
+  });
   // Keep the window title as the product name. The web page sets document.title
   // ("Kimi Code Web"), which would otherwise replace it.
   win.webContents.on('page-title-updated', (event) => {
@@ -352,6 +364,16 @@ function buildMenu(): void {
     {
       label: 'View',
       submenu: [
+        {
+          label: 'Terminal',
+          accelerator: 'CmdOrCtrl+`',
+          click: () => {
+            if (mainWindow !== null && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('kimi-terminal:toggle', {});
+            }
+          },
+        },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
@@ -396,6 +418,10 @@ function installUiProbe(win: BrowserWindow): void {
               sans = computed.split(',')[0].replace(/["']/g, '').trim();
             } catch {}
             const surface = window.kimiBrowserSurface;
+            // The terminal panel is created by the shell, not the page. It is
+            // present once the bridge exposes the toggle and the panel mounted.
+            const terminalMounted = Boolean(document.querySelector('.kimi-terminal-panel'));
+            const desktop = window.kimiDesktop;
             return {
               title: document.title,
               bridges,
@@ -404,6 +430,8 @@ function installUiProbe(win: BrowserWindow): void {
               url: location.origin,
               browser: window.kimiBrowser ? { available: Boolean(window.kimiBrowser.available) } : null,
               surface: surface ? typeof surface.execute === 'function' : false,
+              terminalBridge: desktop ? typeof desktop.toggleTerminal === 'function' : false,
+              terminalMounted,
             };
           })();`,
         )
@@ -421,6 +449,10 @@ function installUiProbe(win: BrowserWindow): void {
                   // must be the same address, or the agent's browser tool
                   // reaches nothing even though both halves exist.
                   mcpEndpoint: readRegisteredBrowserEndpoint(kimiHome()),
+                  // The panel attaches to the daemon over the daemon's terminal
+                  // protocol, and it can only do that when the daemon origin is
+                  // known.
+                  terminalOrigin: serverOrigin ?? '',
                 }
               : result;
           writeFileSync(target, JSON.stringify(merged));
@@ -523,6 +555,12 @@ function installBridge(): void {
   });
   ipcMain.on('kimi-desktop:menu-action', (_event, action: unknown) => {
     if (typeof action === 'string') send('kimi-desktop:menu-action', action);
+  });
+
+  // The Terminal panel lives in the renderer (it needs the daemon's WebSocket
+  // and the page's own credential), so the shell only relays the toggle.
+  ipcMain.on('kimi-terminal:toggle-request', () => {
+    send('kimi-terminal:toggle', {});
   });
 }
 

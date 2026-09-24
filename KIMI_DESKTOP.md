@@ -92,7 +92,10 @@ The design is three files:
 | --- | --- |
 | `src/main/ensure-server.ts` | Find or start the shared local daemon, confirm it is healthy, return its origin. |
 | `src/main/sea-path.ts` | Resolve the bundled `kimi` executable: `<resources>/bin/<target>/kimi` when packaged, `apps/kimi-code/dist-native/bin/<target>/kimi` in dev. |
-| `src/main/index.ts` | `BrowserWindow`, native menu, window-state persistence, loading/error screens, macOS traffic-light and theme handling. |
+| `src/main/index.ts` | `BrowserWindow`, native menu, window-state persistence, loading/error screens, macOS traffic-light and theme handling, and the browser and terminal bridges. |
+| `src/preload/index.ts` | The window bridge: `window.kimiDesktop`, `window.kimiBrowser`, the masked-`<webview>` browser surface, and the Terminal panel. |
+| `src/renderer/terminal-screen.ts` | VT emulator for the Terminal panel: cursor movement, scroll regions, SGR colours, bounded scrollback. |
+| `src/renderer/terminal-panel.ts` | The Terminal panel itself, driving the daemon's terminal REST + WebSocket protocol. |
 
 Two design decisions carry consequences worth understanding before restoring:
 
@@ -107,6 +110,11 @@ Two design decisions carry consequences worth understanding before restoring:
    `window.kimiBrowser`, and the main process routes them over IPC. The macOS
    theme sync now calls through that channel instead of the tagged
    `console-message` workaround, which is kept only as a fallback.
+3. **The Terminal panel belongs to the shell, not the bundle.** The shipped web
+   bundle has no terminal — its harness was removed, and `xterm` has no hits in
+   it. The shell mounts a VT emulator and speaks the daemon's terminal protocol
+   itself (`src/renderer/terminal-screen.ts`, `terminal-panel.ts`), so the panel
+   does not depend on a bundle that no longer has one.
 
 ## Porting the removed code: what will break
 
@@ -500,9 +508,11 @@ old code.
   no idle shutdown. Pick a policy explicitly: reap the child on quit, or leave it
   and accept that the next launch reuses a server the user started in a terminal.
 - **Tests exist now** (`apps/kimi-desktop/test`): the MCP protocol surface, the
-  browser engine's operation handling, the preload bundle contract and the MCP
-  registration. `ensure-server.ts` and `sea-path.ts` still have none, and that is
-  where the discovery logic keeps breaking; add tests there next.
+  browser engine's operation handling, the preload bundle contract, the MCP
+  registration, the VT emulator, the panel driven in a DOM, and the terminal
+  protocol the panel must speak. `ensure-server.ts` and `sea-path.ts` still have
+  none, and that is where the discovery logic keeps breaking; add tests there
+  next.
 - **The MCP endpoint is not exercised in this sandbox.** Binding a loopback
   listener is denied here, so the protocol tests call the transport-free handler
   (`handleMcpHttpRequest`) directly. The socket-level path is only covered on a

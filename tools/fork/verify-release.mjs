@@ -191,11 +191,26 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
     const hasEndpoint =
       /^http:\/\/127\.0\.0\.1:\d+\/mcp$/.test(String(probed.browserEndpoint ?? '')) &&
       probed.browserEndpoint === probed.mcpEndpoint;
-    if (hasFont && hasBridges && hasBrowserBridge && hasMcp && hasSurface && hasEndpoint) {
+    // The shipped web bundle has no terminal of its own, so the shell provides
+    // one. It is only real if the bridge exposes the toggle, the panel mounted,
+    // and the daemon origin is known for the panel to attach to.
+    const hasTerminal =
+      probed.terminalBridge === true &&
+      probed.terminalMounted === true &&
+      /^http:\/\/127\.0\.0\.1:\d+$/.test(String(probed.terminalOrigin ?? ''));
+    if (
+      hasFont &&
+      hasBridges &&
+      hasBrowserBridge &&
+      hasMcp &&
+      hasSurface &&
+      hasEndpoint &&
+      hasTerminal
+    ) {
       return [
         label,
         true,
-        `${output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''}; sans -> ${sans}; bridges: ${bridges.join(', ')}; desktop_browser MCP on ${String(probed.browserEndpoint ?? '?')}`,
+        `${output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''}; sans -> ${sans}; bridges: ${bridges.join(', ')}; desktop_browser MCP on ${String(probed.browserEndpoint ?? '?')}; terminal panel mounted`,
       ];
     }
     const why = [
@@ -207,6 +222,9 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
       hasEndpoint
         ? null
         : `MCP endpoint mismatch (serving ${String(probed.browserEndpoint ?? 'none')}, registered ${String(probed.mcpEndpoint ?? 'none')})`,
+      hasTerminal
+        ? null
+        : `terminal panel not usable (bridge ${String(probed.terminalBridge)}, mounted ${String(probed.terminalMounted)}, origin ${String(probed.terminalOrigin || 'none')})`,
       probed.title === undefined ? 'no document title' : null,
     ].filter((v) => v !== null);
     return [label, false, `connected but the window did not render: ${why.join('; ')}`];

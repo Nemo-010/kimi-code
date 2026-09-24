@@ -53,6 +53,33 @@ the panel was offered-but-dead. The shell now provides them:
 The token is in that file, so it must stay owner-only; the endpoint binds
 `127.0.0.1` so the browser is never reachable from the network.
 
+## The Terminal panel
+
+The web bundle this repo ships has no terminal. Its terminal harness was
+removed: there is no `term` entry in the renderer map, no `case"term"` in the tab
+renderer, and `xterm` does not appear in the bundle at all. Only the translation
+strings survive, so a panel offered by an older bundle cannot be brought back by
+anything the shell does. The daemon still serves terminals and still bundles
+node-pty.
+
+So the shell provides the panel, above the page rather than inside it:
+
+- `apps/kimi-desktop/src/renderer/terminal-screen.ts` is a VT emulator (cursor
+  movement, scroll regions, SGR colours, bounded scrollback). It is written by
+  hand because the desktop bundles everything into the AppImage and ships no
+  `xterm`.
+- `apps/kimi-desktop/src/renderer/terminal-panel.ts` drives it. It creates a
+  terminal through `POST /sessions/:id/terminals` and then attaches over the
+  daemon's own WebSocket at `/api/v1/ws`, using the same credential the web UI
+  stores under `kimi-web.server-credential`.
+- The bearer token goes in the WebSocket **subprotocol**
+  (`kimi-code.bearer.<token>`), which is where the daemon reads it, not in a
+  query parameter that would land in logs.
+
+Because the panel is created by the shell, a later bundle sync cannot take it
+away. Terminals belong to a session, so the panel asks the daemon for the most
+recently updated session when it opens its first tab.
+
 ## Fonts (desktop only)
 
 `quick-sharun` copies `/etc/fonts/fonts.conf` into the AppDir but not its
