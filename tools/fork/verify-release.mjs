@@ -139,7 +139,17 @@ async function guiSmoke(squash, dir) {
   } catch {
     child.kill('SIGKILL');
   }
-  return [name, connected, connected ? output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? '' : output.slice(-400)];
+  if (connected) {
+    return [name, true, output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''];
+  }
+  let detail = output.slice(-400);
+  try {
+    const log = readFileSync(join(home, 'server', 'kimi-desktop.log'), 'utf8').trim().split('\n').slice(-5).join(' | ');
+    if (log.length > 0) detail = `${detail} | server log: ${log}`;
+  } catch {
+    // No server log; the captured output is all we have.
+  }
+  return [name, false, detail];
 }
 
 async function runSmoke(repo, tag, arch, dir) {
@@ -192,19 +202,9 @@ async function runSmoke(repo, tag, arch, dir) {
       } else {
         const backend = sh(join(squash, 'bin', 'kimi'), ['--version']);
         record(`${appimage} bundled kimi --version`, /^\d+\.\d+\.\d+/.test(backend), backend);
-        // Electron initialises a display even for --version, and the extracted
-        // AppDir's chrome-sandbox is not setuid root, so it needs xvfb and
-        // --no-sandbox.
-        if (hasCommand('xvfb-run')) {
-          const electron = sh(
-            'xvfb-run',
-            ['-a', target, '--no-sandbox', '--disable-gpu', '--version'],
-            { env: { ...process.env, ELECTRON_DISABLE_SANDBOX: '1' } },
-          );
-          record(`${appimage} electron --version`, /^v?\d+\./.test(electron), electron);
-        } else {
-          record(`${appimage} electron --version`, true, 'skipped: no xvfb-run');
-        }
+        // A packaged Electron app does not handle --version, so the only way to
+        // prove the desktop runs is to launch it under a dummy display and wait
+        // for it to bring up (or attach to) its server.
         record(...(await guiSmoke(squash, dir)));
         record(...(await guiSmoke(squash, dir)));
       }
