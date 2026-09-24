@@ -54,7 +54,8 @@
         "web-bundle",
         "desktop-absent",
         "release-gating",
-        "only-built-dependencies"
+        "only-built-dependencies",
+        "desktop-shell-bridge"
       ]
     },
     {
@@ -157,6 +158,16 @@
       "checks": [
         { "type": "grep", "path": "apps/kimi-code/src/tui", "pattern": "subagent" },
         { "type": "grep", "path": "apps/kimi-code/src/tui", "pattern": "transcript" }
+      ]
+    },
+    {
+      "id": "desktop-shell-bridge",
+      "description": "The web UI bundle probes window.kimiDesktop (showWindow/setOnboarded/onMenuAction) and offers a Browser panel backed by a browser surface. The desktop shell has to expose both, or the panel is offered and can never be opened.",
+      "scope": "fork",
+      "checks": [
+        { "type": "grep", "path": "apps/kimi-code/dist-web/assets", "pattern": "kimiDesktop" },
+        { "type": "grep", "path": "apps/kimi-desktop/src/preload", "pattern": "kimiBrowser" },
+        { "type": "grep", "path": "apps/kimi-desktop/src/main/index.ts", "pattern": "webviewTag" }
       ]
     }
   ]

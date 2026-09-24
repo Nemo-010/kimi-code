@@ -9,9 +9,12 @@ echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
 get-debloated-pkgs --add-common --prefer-nano
 
-echo "Installing a font for the bundled fontconfig..."
+# Fonts for the bundled fallback fontconfig. DejaVu covers Latin/Greek/Cyrillic
+# and Noto covers the CJK the UI is localised into; a host whose own fontconfig
+# works never reads either (see src/main/index.ts, configureFonts).
+echo "Installing fonts for the bundled fontconfig..."
 echo "---------------------------------------------------------------"
-pacman -S --noconfirm --needed ttf-dejavu
+pacman -S --noconfirm --needed ttf-dejavu noto-fonts noto-fonts-cjk
 
 echo "Staging the unpacked Electron app..."
 echo "---------------------------------------------------------------"

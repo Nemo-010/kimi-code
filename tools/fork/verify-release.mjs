@@ -107,11 +107,20 @@ function hasCommand(name) {
   }
 }
 
-// Run a desktop app under a dummy display and wait for it to connect to the
-// bundled server. Uses xvfb-run when present; otherwise reports a skip.
+// Run a desktop app under a dummy display, wait for it to connect to the
+// bundled server, and then ask the page what it renders. "Connected to" only
+// proves the backend came up; issue #1 was a release that connected fine and
+// still shipped a UI with no fonts and no Browser panel.
+//
+// Uses xvfb-run when present; otherwise reports a skip.
 async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}) {
   if (!hasCommand('xvfb-run')) return [label, true, 'skipped: no xvfb-run'];
   const home = mkdtempSync(join(dir, 'home-'));
+  // The renderer is inspected through a small driver script that the app runs
+  // after it has loaded: it reports the resolved font stack and the state of
+  // the preload bridges over a file, because the window's own stdout is not
+  // readable from here.
+  const probe = join(dir, 'ui-probe.json');
   const child = spawn(
     'xvfb-run',
     [
@@ -123,7 +132,12 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
       '--disable-dev-shm-usage',
     ],
     {
-      env: { ...process.env, KIMI_CODE_HOME: home, ELECTRON_DISABLE_SANDBOX: '1' },
+      env: {
+        ...process.env,
+        KIMI_CODE_HOME: home,
+        ELECTRON_DISABLE_SANDBOX: '1',
+        KIMI_DESKTOP_UI_PROBE: probe,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,
     },
@@ -137,10 +151,16 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
   });
   const deadline = Date.now() + 90_000;
   let connected = false;
+  let probed = null;
   while (Date.now() < deadline) {
-    if (output.includes('[kimi-desktop] connected to')) {
-      connected = true;
-      break;
+    if (output.includes('[kimi-desktop] connected to')) connected = true;
+    if (connected && existsSync(probe)) {
+      try {
+        probed = JSON.parse(readFileSync(probe, 'utf8'));
+        break;
+      } catch {
+        // Written between the check and the read; try again next tick.
+      }
     }
     if (child.exitCode !== null) break;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -155,8 +175,24 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
     }
   }
   const missingFont = output.includes('Could not find any font');
-  if (connected && !missingFont) {
-    return [label, true, output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''];
+  if (connected && probed !== null && !missingFont) {
+    const sans = typeof probed.sans === 'string' ? probed.sans : '';
+    const bridges = Array.isArray(probed.bridges) ? probed.bridges : [];
+    const hasFont = sans.length > 0 && probed.fontReady === true;
+    const hasBridges = bridges.includes('kimiDesktop') && bridges.includes('kimiBrowser');
+    if (hasFont && hasBridges) {
+      return [
+        label,
+        true,
+        `${output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''}; sans -> ${sans}; bridges: ${bridges.join(', ')}`,
+      ];
+    }
+    const why = [
+      hasFont ? null : `no resolvable sans family (${sans || 'none'})`,
+      hasBridges ? null : `preload bridges missing (${bridges.join(', ') || 'none'})`,
+      probed.title === undefined ? 'no document title' : null,
+    ].filter((v) => v !== null);
+    return [label, false, `connected but the window did not render: ${why.join('; ')}`];
   }
   if (!connected && tolerateMissingLibs) {
     // The zip uses the distro's libraries, and a runner is not the target
@@ -166,6 +202,7 @@ async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}
   }
   let detail = output.slice(-400);
   if (missingFont) detail = `fontconfig could not resolve a family: ${detail}`;
+  if (connected && probed === null) detail = `connected, but the window never reported its state: ${detail}`;
   try {
     const log = readFileSync(join(home, 'server', 'kimi-desktop.log'), 'utf8').trim().split('\n').slice(-5).join(' | ');
     if (log.length > 0) detail = `${detail} | server log: ${log}`;
@@ -197,6 +234,9 @@ function fontChecks(squash, dir) {
   if (!hasCommand('fc-match')) return results;
   const env = {
     ...process.env,
+    // The bundled rules are what a host with no fontconfig of its own gets, so
+    // they are what has to resolve here. Pointing FONTCONFIG_PATH at them is
+    // the fallback path, not the shipped default (see 10-fontconfig.hook).
     FONTCONFIG_PATH: join(squash, 'etc', 'fonts'),
     FONTCONFIG_FILE: join(squash, 'etc', 'fonts', 'fonts.conf'),
     XDG_CACHE_HOME: mkdtempSync(join(dir, 'fc-cache-')),

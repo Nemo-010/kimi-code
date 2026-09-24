@@ -1,11 +1,50 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 
 import { ensureServer, kimiHome, serverLogPath, stopServer } from './ensure-server';
 import { resolveSeaPath } from './sea-path';
+
+// --- fontconfig -----------------------------------------------------------------
+
+/**
+ * Point the process at an explicitly resolved fontconfig setup, falling back to
+ * the host's own when the AppImage's bundled rules and cache are unusable.
+ *
+ * The released AppImage bundled `/etc/fonts/conf.d` and a font, but it still
+ * used the *host* fontconfig library, so the host reported a cache built by a
+ * different Fontconfig version ("We will not regenerate the cache ...") and
+ * could not resolve `sans`. A bundled fontconfig library alone does not fix
+ * that: its cache directory is inside the AppImage, so on a read-only mount it
+ * can neither read nor write a cache and re-scans every font on each launch.
+ *
+ * Order of preference:
+ *   1. an explicit override, so a user can force a setup;
+ *   2. the host's `/etc/fonts`, which already has the host's caches and fonts —
+ *      this also makes the UI use the host fonts, as it should;
+ *   3. the bundled rules, which are all the AppImage can rely on offline.
+ *
+ * `FONTCONFIG_FILE` / `FONTCONFIG_PATH` are read by the fontconfig library on
+ * first use, so they have to be set before the renderer starts.
+ */
+function configureFonts(): void {
+  if (process.env['KIMI_DESKTOP_FONTCONFIG'] !== undefined) return;
+  const bundled = join(process.resourcesPath, '..', 'etc', 'fonts');
+  if (existsSync('/etc/fonts/fonts.conf')) {
+    delete process.env['FONTCONFIG_FILE'];
+    delete process.env['FONTCONFIG_PATH'];
+    return;
+  }
+  if (existsSync(join(bundled, 'fonts.conf'))) {
+    process.env['FONTCONFIG_FILE'] = join(bundled, 'fonts.conf');
+    process.env['FONTCONFIG_PATH'] = bundled;
+  }
+}
+
+/** Absolute path to the preload bundle, emitted next to the main bundle. */
+const preload = join(__dirname, 'preload', 'index.cjs');
 
 let mainWindow: BrowserWindow | null = null;
 /** Server started by this process, reaped on quit. Reused servers stay alive. */
@@ -169,8 +208,14 @@ function createWindow(): void {
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
     trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
+      preload,
       contextIsolation: true,
       nodeIntegration: false,
+      // The Browser panel is built out of <webview> tags by the preload; the
+      // tag is disabled by default.
+      webviewTag: true,
+      // Nothing here needs a node environment in a subframe.
+      sandbox: true,
     },
   });
   mainWindow = win;
@@ -202,11 +247,11 @@ function createWindow(): void {
     win.on('leave-full-screen', showTrafficLights);
     win.on('focus', showTrafficLights);
 
-    // Theme sync: no preload/IPC channel exists, so inject a tiny observer
-    // that reports <html data-color-scheme> ('light' | 'dark' | 'system')
-    // through a tagged console message, and mirror it into
-    // nativeTheme.themeSource (same three states). The startup/error screens
-    // (data: URLs) have no such attribute and harmlessly report 'system'.
+    // Theme sync used to be injected JavaScript plus a tagged console message,
+    // because there was no preload and no IPC. There is a preload now: the web
+    // UI calls `window.kimiDesktop.setTheme`, which arrives as an IPC message.
+    // The observer below is kept as a fallback for bundles that only report the
+    // scheme through <html data-color-scheme> and never call the bridge.
     const THEME_TAG = '__kimi_desktop_theme__:';
     win.webContents.on('console-message', (details) => {
       const message = details.message;
@@ -237,6 +282,7 @@ function createWindow(): void {
         });
     });
   }
+  installUiProbe(win);
   win.on('close', () => {
     saveBounds(win);
   });
@@ -256,6 +302,14 @@ function buildMenu(): void {
     label: 'Kimi Code Desktop',
     submenu: [
       ...(isMac ? [{ role: 'about' as const }, { type: 'separator' as const }] : []),
+      {
+        label: '打开设置',
+        click: () => {
+          if (mainWindow !== null && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('kimi-desktop:menu-action', 'open-settings');
+          }
+        },
+      },
       {
         label: '重试连接',
         click: () => {
@@ -300,6 +354,89 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// --- release smoke probe ------------------------------------------------------
+
+/**
+ * `KIMI_DESKTOP_UI_PROBE=<file>` makes the shell write what the window actually
+ * rendered, once it has loaded. `KIMI_DESKTOP.md` calls the release smoke test
+ * "a launch test, not a --version probe" — but it only ever waited for
+ * `[kimi-desktop] connected to`, so a release could connect and still ship a UI
+ * with no usable font stack or with missing bridges (issue #1). This writes the
+ * facts the verifier needs, from inside the real renderer.
+ */
+function installUiProbe(win: BrowserWindow): void {
+  const target = process.env['KIMI_DESKTOP_UI_PROBE'];
+  if (target === undefined || target.length === 0) return;
+  win.webContents.on('did-finish-load', () => {
+    setTimeout(() => {
+      void win.webContents
+        .executeJavaScript(
+          `(() => {
+            const probes = ['kimiDesktop', 'kimiBrowser'];
+            const bridges = probes.filter((name) => typeof window[name] === 'object');
+            const ready = (document.fonts && document.fonts.status === 'loaded') || document.readyState === 'complete';
+            let sans = '';
+            try {
+              const computed = getComputedStyle(document.body).fontFamily || '';
+              sans = computed.split(',')[0].replace(/["']/g, '').trim();
+            } catch {}
+            return { title: document.title, bridges, fontReady: ready, sans, url: location.origin };
+          })();`,
+        )
+        .then((result: unknown) => {
+          writeFileSync(target, JSON.stringify(result));
+        })
+        .catch(() => {
+          // The probe is a release smoke aid; never let it take the window down.
+        });
+    }, 5_000);
+  });
+}
+
+// --- renderer bridge ----------------------------------------------------------
+
+/**
+ * Channels the preload uses. The preload owns the privileged behaviour (the
+ * native shell's `webview` surface and the window appearance), the main process
+ * only routes and validates.
+ */
+function installBridge(): void {
+  const send = (channel: string, payload: object | string): void => {
+    if (mainWindow !== null && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload);
+    }
+  };
+
+  ipcMain.on('kimi-browser:theme', (_event, payload: unknown) => {
+    const theme = (payload as { theme?: unknown } | null)?.theme;
+    if (theme === 'light' || theme === 'dark' || theme === 'system') {
+      nativeTheme.themeSource = theme;
+    }
+  });
+  ipcMain.on('kimi-browser:event', (_event, payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) return;
+    // The Browser panel is not implemented by this shell yet; log what the page
+    // asks for instead of dropping it silently, so the gap is visible in the
+    // terminal when someone runs the AppImage from one.
+    process.stdout.write(`[kimi-desktop] browser event ${JSON.stringify(payload)}\n`);
+  });
+  ipcMain.on('kimi-desktop:show-window', () => {
+    if (mainWindow === null || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  ipcMain.on('kimi-desktop:log', (_event, payload: unknown) => {
+    const entry = payload as { level?: unknown; message?: unknown } | null;
+    process.stdout.write(
+      `[kimi-desktop] renderer ${String(entry?.level ?? 'info')}: ${String(entry?.message ?? '')}\n`,
+    );
+  });
+  ipcMain.on('kimi-desktop:menu-action', (_event, action: unknown) => {
+    if (typeof action === 'string') send('kimi-desktop:menu-action', action);
+  });
+}
+
 // --- app lifecycle ------------------------------------------------------------
 
 function main(): void {
@@ -318,6 +455,8 @@ function main(): void {
   });
 
   void app.whenReady().then(() => {
+    configureFonts();
+    installBridge();
     buildMenu();
     createWindow();
     app.on('activate', () => {

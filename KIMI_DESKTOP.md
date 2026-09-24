@@ -99,11 +99,14 @@ Two design decisions carry consequences worth understanding before restoring:
 1. **The desktop app never starts a private server.** It invokes the bundled
    SEA, which finds a server other clients (CLI, browser, TUI) are already using,
    or starts one they can reuse. It never spawns an app-only daemon.
-2. **The renderer talks to the daemon over plain same-origin HTTP with no
-   preload script and no IPC.** `contextIsolation` is on, `nodeIntegration` is
-   off. Anything that needs privileged host behaviour has to be added as a new
-   preload/IPC channel — upstream's version has none, and works around that with
-   injected JavaScript for the macOS theme sync.
+2. **The renderer talks to the daemon over plain same-origin HTTP.** `contextIsolation` is on and `nodeIntegration` is off, but there **is** a preload
+   (`src/preload/index.ts`). The web UI bundle is written for the internal
+   code-app shell and probes `window.kimiDesktop`; without a preload the shell
+   cannot answer, and the quick-open list goes on offering a Browser panel that
+   can never open (issue #1). The preload exposes `window.kimiDesktop` and
+   `window.kimiBrowser`, and the main process routes them over IPC. The macOS
+   theme sync now calls through that channel instead of the tagged
+   `console-message` workaround, which is kept only as a fallback.
 
 ## Porting the removed code: what will break
 
@@ -475,10 +478,16 @@ old code.
 - **No auto-update.** Users reinstall by hand. `electron-updater` is the
   obvious hook, and the fork's `updates/latest.json` mechanism is unrelated.
 - **Windows and Linux ship unsigned.** Windows shows a SmartScreen prompt.
-- **No preload and no IPC.** Anything that needs the host (tray, global
-  shortcut, deep links, native file dialogs scoped to the OS) has to add one.
-  The macOS theme sync is done by injected JavaScript plus a tagged
-  `console-message`, which is a workaround, not a design.
+- **There is a preload and an IPC channel now**, added so the web UI's
+  `window.kimiDesktop` / `window.kimiBrowser` probes have something to answer.
+  Anything else that needs the host (tray, global shortcut, deep links, native
+  file dialogs scoped to the OS) still has to be added on top of it.
+- **The Browser panel is only wired as far as the surface.** The preload can
+  create, navigate and position masked `<webview>` tags and forwards their
+  events, but the panel's own UI in the committed web bundle talks to the
+  internal shell's browser service; the agent-facing browser tools live in the
+  SEA (`kimi.browser/1.0.0`). The panel is no longer silently offered-and-dead,
+  but it is not yet a finished browser.
 - **The daemon lifetime problem is unresolved.** "Leave it running" was correct
   when the SEA was a detached daemon; `kimi web` is foreground now and there is
   no idle shutdown. Pick a policy explicitly: reap the child on quit, or leave it
