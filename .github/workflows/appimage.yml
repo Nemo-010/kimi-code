@@ -121,6 +121,20 @@ jobs:
           KIMI_DESKTOP_UNPACKED="$unpacked" /bin/sh ./get-dependencies.sh
           KIMI_DESKTOP_UNPACKED="$unpacked" /bin/sh ./make-appimage.sh
 
+      - name: Verify the desktop AppImage ships fonts
+        # A host without fontconfig renders the whole UI with no text if the
+        # AppImage has no conf.d rules or no font. Fail the build, not the
+        # release.
+        working-directory: packaging/appimage/kimi-desktop
+        run: |
+          set -eu
+          ./dist/Kimi-Code-Desktop-*.AppImage --appimage-extract >/dev/null
+          test -d squashfs-root/etc/fonts/conf.d
+          test -n "$(ls -A squashfs-root/share/fonts)"
+          test -f squashfs-root/bin/10-fontconfig.hook
+          echo "desktop AppImage ships $(ls squashfs-root/etc/fonts/conf.d | wc -l) fontconfig rules and $(ls squashfs-root/share/fonts | wc -l) fonts"
+          rm -rf squashfs-root
+
       - name: Upload the AppImages
         uses: actions/upload-artifact@v7
         with:

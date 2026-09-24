@@ -82,8 +82,19 @@ function sha256(file) {
 }
 
 function download(repo, tag, name, dir) {
-  gh(['release', 'download', tag, '--repo', repo, '--pattern', name, '--dir', dir, '--clobber']);
-  return join(dir, name);
+  // The two desktop artifacts are ~175 MiB, and GitHub's release-asset host
+  // occasionally resets the connection part-way through. Retry before giving up.
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      gh(['release', 'download', tag, '--repo', repo, '--pattern', name, '--dir', dir, '--clobber']);
+      return join(dir, name);
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) sh('sleep', [String(attempt * 5)]);
+    }
+  }
+  throw lastError;
 }
 
 function hasCommand(name) {
