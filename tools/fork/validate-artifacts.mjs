@@ -20,7 +20,7 @@ const color = process.stdout.isTTY === true && process.env['NO_COLOR'] === undef
 const paint = (c, t) => (color ? `${c}${t}${C.reset}` : t);
 
 function parseArgs(argv) {
-  const options = { dir: undefined, allowMissingDesktop: false };
+  const options = { dir: '', allowMissingDesktop: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--dir' || arg === '-d') options.dir = argv[++i];
@@ -48,7 +48,7 @@ function sha256(file) {
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.help || options.dir === undefined) {
+  if (options.help || options.dir === '') {
     console.log(`Pre-publish artifact gate.
 
 Usage: node tools/fork/validate-artifacts.mjs --dir <dir>
@@ -57,7 +57,7 @@ Options:
   -d, --dir <dir>              directory containing downloaded artifacts
       --allow-missing-desktop  do not require a desktop installer
   -h, --help                   this text`);
-    if (options.dir === undefined) process.exitCode = 1;
+    if (options.dir === '') process.exitCode = 1;
     return;
   }
   const files = walk(options.dir);

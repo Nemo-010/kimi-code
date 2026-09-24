@@ -32,7 +32,7 @@ const paint = (c, t) => (color ? `${c}${t}${C.reset}` : t);
 let optionsKeep = false;
 
 function parseArgs(argv) {
-  const options = { tag: undefined, repo: undefined, smoke: false, arch: hostAppImageArch(), keep: false };
+  const options = { tag: '', repo: undefined, smoke: false, arch: hostAppImageArch(), keep: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--tag' || arg === '-t') options.tag = argv[++i];
@@ -134,10 +134,14 @@ async function guiSmoke(squash, dir) {
     if (child.exitCode !== null) break;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  try {
-    process.kill(-child.pid, 'SIGKILL');
-  } catch {
+  if (child.pid === undefined) {
     child.kill('SIGKILL');
+  } else {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
   }
   if (connected) {
     return [name, true, output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''];
@@ -219,7 +223,7 @@ async function runSmoke(repo, tag, arch, dir) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   optionsKeep = options.keep;
-  if (options.help || options.tag === undefined) {
+  if (options.help || options.tag === '') {
     console.log(`Verify a published fork release.
 
 Usage: node tools/fork/verify-release.mjs --tag <tag> [options]
@@ -231,7 +235,7 @@ Options:
       --smoke        download host-arch artifacts, extract and execute them
       --keep         keep the temporary download directory
   -h, --help         this text`);
-    if (options.tag === undefined) process.exitCode = 1;
+    if (options.tag === '') process.exitCode = 1;
     return;
   }
   const repo = resolveRepo(options.repo);

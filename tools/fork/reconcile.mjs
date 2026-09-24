@@ -358,20 +358,20 @@ function printRebasePlan(options, report) {
 
 function verify() {
   const steps = [
-    ['pnpm install --frozen-lockfile', ['pnpm', ['install', '--frozen-lockfile']]],
-    ['pnpm run typecheck', ['pnpm', ['run', 'typecheck']]],
-    ['pnpm run lint', ['pnpm', ['run', 'lint']]],
-    ['pnpm run sherif', ['pnpm', ['run', 'sherif']]],
-    ['pnpm -C apps/kimi-desktop run test', ['pnpm', ['-C', 'apps/kimi-desktop', 'run', 'test']]],
+    { label: 'pnpm install --frozen-lockfile', cmd: 'pnpm', args: ['install', '--frozen-lockfile'] },
+    { label: 'pnpm run typecheck', cmd: 'pnpm', args: ['run', 'typecheck'] },
+    { label: 'pnpm run lint', cmd: 'pnpm', args: ['run', 'lint'] },
+    { label: 'pnpm run sherif', cmd: 'pnpm', args: ['run', 'sherif'] },
+    { label: 'pnpm -C apps/kimi-desktop run test', cmd: 'pnpm', args: ['-C', 'apps/kimi-desktop', 'run', 'test'] },
   ];
   let failed = false;
-  for (const [label, [cmd, args]] of steps) {
-    process.stdout.write(`→ ${label}\n`);
+  for (const step of steps) {
+    process.stdout.write(`→ ${step.label}\n`);
     try {
-      execFileSync(cmd, args, { cwd: REPO, stdio: 'inherit' });
+      execFileSync(step.cmd, step.args, { cwd: REPO, stdio: 'inherit' });
     } catch {
       failed = true;
-      console.log(paint(C.red, `✗ ${label}`));
+      console.log(paint(C.red, `✗ ${step.label}`));
     }
   }
   console.log(failed ? paint(C.red, '\nVerification FAILED') : paint(C.green, '\nVerification passed'));
