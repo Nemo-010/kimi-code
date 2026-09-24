@@ -1,157 +1,170 @@
-# Kimi Code CLI
+# Kimi Code CLI — subagent/swarm thinking fork
 
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) [![Docs](https://img.shields.io/badge/docs-online-blue)](https://moonshotai.github.io/kimi-code/en/) <br>
-[Documentation](https://moonshotai.github.io/kimi-code/en/) · [Issues](https://github.com/MoonshotAI/kimi-code/issues) · [中文](README.zh-CN.md)
+Fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code).
 
-![Demo of using Kimi Code](./docs/media/intro.gif)
+- Upstream documentation: <https://moonshotai.github.io/kimi-code/en/>
+- Upstream issues: <https://github.com/MoonshotAI/kimi-code/issues>
+- This fork's releases: <https://github.com/Nemo-010/kimi-code/releases>
+
+This fork adds nothing to the agent itself. It changes only the terminal UI so
+that the thinking traces and tool detail of subagents and swarm members are
+reachable, and so the detail views expand with `Ctrl+O`.
 
 ## Fork notes
 
-Fork of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) that
-makes subagent/swarm thinking traces reachable and their detail expandable with
-`Ctrl+O`.
+### Before
 
-Upstream issues: [#4007](https://github.com/MoonshotAI/kimi-code/issues/4007),
-[#2472](https://github.com/MoonshotAI/kimi-code/issues/2472),
-[#2131](https://github.com/MoonshotAI/kimi-code/issues/2131),
-[#2482](https://github.com/MoonshotAI/kimi-code/issues/2482),
-[#3362](https://github.com/MoonshotAI/kimi-code/issues/3362),
-[#2140](https://github.com/MoonshotAI/kimi-code/issues/2140),
-[#1957](https://github.com/MoonshotAI/kimi-code/issues/1957),
-[#3015](https://github.com/MoonshotAI/kimi-code/issues/3015),
-[#2154](https://github.com/MoonshotAI/kimi-code/issues/2154),
-[#3839](https://github.com/MoonshotAI/kimi-code/issues/3839),
-[#3190](https://github.com/MoonshotAI/kimi-code/issues/3190).
+Before this fork:
 
-Patched:
+- Main-agent thinking and tool cards expand with `Ctrl+O`, scoped to the most
+  recent turns (`KIMI_CODE_TUI_EXPAND_TURNS`, default 3).
+- A solo `Agent` card was a fixed two-row window that `Ctrl+O` could not expand.
+  The child's thinking was captured (`subagentThinkingText`) but only ever shown
+  as a two-line live window, and never after the subagent finished.
+- The `/tasks` background-agent detail view (`AgentActivityViewer`) recorded only
+  `assistant.delta`; `thinking.delta` was dropped, so thinking never appeared
+  there at all.
+- The `AgentSwarm` panel merged `thinking.delta` and `assistant.delta` into one
+  buffer and rendered a single line per member with no expansion.
 
-- `subagent-activity-store.ts`, `agent-activity-viewer.ts` — record and render subagent thinking in the `/tasks` agent view.
-- `tool-call.ts` — a solo `Agent` card expands to the full child thinking/output.
-- `agent-swarm-progress.ts`, `subagent-event-handler.ts` — per-member thinking (`~`) and output in an expandable swarm trace.
-- `test/tui/subagent-thinking-detail.test.ts` — new; tool-call and activity-viewer tests updated.
+### After
 
-Build (Node >= 24.15.0, pnpm 10.33.0): `pnpm install && pnpm run build`.
+After this fork:
 
-Verify: `pnpm -C apps/kimi-code exec vitest run test/tui/subagent-thinking-detail.test.ts`.
+- `Ctrl+O` expands a solo `Agent` card to the full child stream and prepends the
+  child's thinking trace; the collapsed card still shows the two-row window.
+- `/tasks` → open an agent shows thinking per step, expandable with the viewer's
+  `Ctrl+O`.
+- The `AgentSwarm` panel is expandable (`Ctrl+O`) and keeps thinking distinct
+  from output per member, with a `~` prefix on thinking rows. The collapsed
+  one-line label is unchanged.
 
-CI runs on `main`; native binaries are attached to [Releases](https://github.com/Nemo-010/kimi-code/releases).
+### Out of scope
 
-## What is Kimi Code CLI
+Out of scope (still upstream-only): swarm members do not register background
+tasks, so per-member stop/attach and per-member output buffers remain absent
+(see upstream #2131).
 
-Kimi Code CLI is an AI coding agent that runs in your terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI’s Kimi models and can also be configured to use other compatible providers.
+## Upstream issues addressed
 
-## Install
+| # | Title |
+| --- | --- |
+| [#4007](https://github.com/MoonshotAI/kimi-code/issues/4007) | Add config option to expand thinking blocks by default (persist the Ctrl+O expanded state) |
+| [#2472](https://github.com/MoonshotAI/kimi-code/issues/2472) | feat(tui): add display-level toggles to collapse/hide thinking and tool-call details |
+| [#2131](https://github.com/MoonshotAI/kimi-code/issues/2131) | Treat subagents as first-class observable sessions: attach, monitor, manage individually |
+| [#2482](https://github.com/MoonshotAI/kimi-code/issues/2482) | ACP: subagent work is invisible — forward subagent lifecycle and streams over session updates |
+| [#3362](https://github.com/MoonshotAI/kimi-code/issues/3362) | Subagent observability and resilience — per-agent metrics, infra-failure resume, failure state report |
+| [#2140](https://github.com/MoonshotAI/kimi-code/issues/2140) | feat: support per-call model and thinking_level parameters in Agent and AgentSwarm tools |
+| [#1957](https://github.com/MoonshotAI/kimi-code/issues/1957) | Swarm无法查看进度 |
+| [#3015](https://github.com/MoonshotAI/kimi-code/issues/3015) | Subagent panel shows completed subagents as "运行中" with ever-growing timers |
+| [#2154](https://github.com/MoonshotAI/kimi-code/issues/2154) | [TUI] Subagent panel keeps completed foreground subagents listed as running indefinitely |
+| [#3839](https://github.com/MoonshotAI/kimi-code/issues/3839) | [Bug] Status bar shows base thinking effort instead of forced effort from `KIMI_MODEL_THINKING_EFFORT` |
+| [#3190](https://github.com/MoonshotAI/kimi-code/issues/3190) | Subagent thinking effort stuck at "high" for third-party models: `support_efforts` ignored and global/inherited effort always wins |
 
-Install with the official script. No Node.js required.
+This patch is a display change only; it does not close the model-selection,
+effort-inheritance, ACP-forwarding, or per-agent-lifecycle issues above.
 
-- **macOS or Linux**:
+## Exactly what is patched
 
-```sh
-curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
-```
+| File | Change |
+| --- | --- |
+| `apps/kimi-code/src/tui/controllers/subagent-activity-store.ts` | `SubagentStepActivity` gains `thinkingTail`. `applyEvent` handles `thinking.delta` into it, capped by `SUBAGENT_STEP_TEXT_TAIL_CHARS`, alongside the existing `assistant.delta` → `textTail`. |
+| `apps/kimi-code/src/tui/components/dialogs/agent-activity-viewer.ts` | `buildLines` renders each step's `thinkingTail` with `ThinkingComponent` (collapsed by default, expanded by the viewer's `Ctrl+O`). `formatSubagentActivityPreview` includes a `~ thinking` block for the plain-text tasks preview. |
+| `apps/kimi-code/src/tui/components/messages/tool-call.ts` | For a solo `Agent` card, `computeHiddenContent()` returns true when the child has thinking, text, error, or a result summary. `buildSingleSubagentActiveWindow` and `buildSingleSubagentResultWindow` render the full content when expanded and the two-row window when collapsed. `buildSingleSubagentBlock` prepends the child's thinking trace when expanded. |
+| `apps/kimi-code/src/tui/components/messages/agent-swarm-progress.ts` | Adds `setExpanded` / `isExpanded` / `hasHiddenContent` so the panel participates in the global `Ctrl+O` toggle. `AgentSwarmMember` gains `latestThinkingText` and `latestText`; `appendModelDelta` accepts `kind`. `renderExpandedDetails` renders a labelled per-member trace, `~`-prefixed for thinking. |
+| `apps/kimi-code/src/tui/controllers/subagent-event-handler.ts` | `applySubagentEventToSwarmProgress` routes `thinking.delta` and `assistant.delta` to `appendModelDelta` with `kind: 'thinking'` / `'text'` instead of merging both. |
+| `apps/kimi-code/test/tui/subagent-thinking-detail.test.ts` | New behaviour tests for all of the above. |
+| `apps/kimi-code/test/tui/components/messages/tool-call.test.ts` | Updated: the subagent window now expands with `Ctrl+O`; the solo-subagent `hasHiddenContent()` contract is now "true once the child has streamed content". |
+| `apps/kimi-code/test/tui/components/dialogs/agent-activity-viewer.test.ts` | Updated fixtures for the new `thinkingTail` field. |
 
-- **Windows (PowerShell)**:
+Nothing outside `apps/kimi-code` (engine, protocol, SDK, server, web bundle) is
+touched.
 
-```powershell
-irm https://code.kimi.com/kimi-code/install.ps1 | iex
-```
+## Build
 
-> On Windows, install [Git for Windows](https://gitforwindows.org/) before first launch because Kimi Code CLI uses the bundled Git Bash as its shell environment. If Git Bash is installed in a custom location, set `KIMI_SHELL_PATH` to the absolute path of `bash.exe`.
-
-Then, run it with a new shell session:
-
-```sh
-kimi --version
-```
-
-For npm install, upgrade, uninstall, see [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
-
-## Quick Start
-
-Open a project and start the interactive UI:
-
-```sh
-cd your-project
-kimi
-```
-
-On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Moonshot AI Open Platform API key. After login, try your first task:
-
-```
-Take a look at this project and explain its main directories.
-```
-
-## Key Features
-
-- **Single-binary distribution.** Install with one command: no Node.js setup, PATH gymnastics, or global module conflicts.
-- **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
-- **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
-- **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
-- **AI-native MCP configuration.** Add, edit, and authenticate Model Context Protocol servers conversationally with `/mcp-config`, without hand-editing JSON.
-- **Rich plugin ecosystem.** Install skills, MCP servers, and data sources from the marketplace or any GitHub repo, with each install's trust level surfaced up front.
-- **Subagents for focused, parallel work.** Dispatch built-in `coder`, `explore`, and `plan` subagents in isolated contexts while keeping the main conversation clean.
-- **Lifecycle hooks.** Run local commands at key points to gate risky tool calls, audit decisions, trigger desktop notifications, or connect to your own automation.
-- **Editor & IDE integration (ACP).** Drive a Kimi Code CLI session straight from Zed, JetBrains, or any [Agent Client Protocol](https://agentclientprotocol.com/) client with `kimi acp`.
-
-## Use it in your editor (ACP)
-
-Kimi Code CLI speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
-
-For Zed, add this to `~/.config/zed/settings.json`:
-
-```json
-{
-  "agent_servers": {
-    "Kimi Code CLI": {
-      "type": "custom",
-      "command": "kimi",
-      "args": ["acp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://moonshotai.github.io/kimi-code/en/guides/ides) for JetBrains setup and troubleshooting, and the [`kimi acp` reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-acp) for the full capability matrix.
-
-## Docs
-
-- [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started)
-- [Interaction and approvals](https://moonshotai.github.io/kimi-code/en/guides/interaction)
-- [Sessions](https://moonshotai.github.io/kimi-code/en/guides/sessions)
-- [Using in IDEs (ACP)](https://moonshotai.github.io/kimi-code/en/guides/ides)
-- [Configuration](https://moonshotai.github.io/kimi-code/en/configuration/config-files)
-- [Command reference](https://moonshotai.github.io/kimi-code/en/reference/kimi-command)
-
-## Develop
-
-Requirements: Node.js ≥ 24.15.0, pnpm 10.33.0.
+Requires Node.js >= 24.15.0 and pnpm 10.33.0 (`corepack enable`).
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
-cd kimi-code
 pnpm install
+pnpm run build
+node apps/kimi-code/dist/main.mjs --version   # 2.1.0
 ```
+
+CLI app only:
 
 ```sh
-pnpm dev:cli    # run the CLI in dev mode
-pnpm test       # run tests
-pnpm typecheck  # TypeScript check
-pnpm lint       # oxlint
-pnpm build      # build all packages
+pnpm -C apps/kimi-code run build
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
+Native single executable (linux-x64):
 
-## Community
+```sh
+pnpm -C apps/kimi-code run build:native:sea
+pnpm -C apps/kimi-code run package:native
+# apps/kimi-code/dist-native/artifacts/kimi-code-linux-x64.zip
+```
 
-- [Issues](https://github.com/MoonshotAI/kimi-code/issues)
-- For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+## Verify
 
-## Acknowledgements
+Focused suite:
 
-Our TUI is built on top of [`pi-tui`](https://github.com/earendil-works/pi-mono/tree/main/packages/tui). We thank the authors of `pi-tui` for their valuable work.
+```sh
+pnpm -C apps/kimi-code exec vitest run test/tui/subagent-thinking-detail.test.ts
+```
+
+It asserts that main thinking expands; that a solo `Agent` card advertises
+hidden content and reveals the full thinking trace on expand; that the activity
+store keeps thinking and assistant text in separate tails; that the swarm path
+routes thinking and output with their kind; and that the expanded swarm panel
+renders both.
+
+Surrounding suites:
+
+```sh
+pnpm -C apps/kimi-code exec vitest run \
+  test/tui/components/messages/tool-call.test.ts \
+  test/tui/components/messages/agent-swarm-progress.test.ts \
+  test/tui/components/dialogs/agent-activity-viewer.test.ts \
+  test/tui/controllers/subagent-event-handler.test.ts \
+  test/tui/controllers/subagent-activity-store.test.ts
+```
+
+Whole app suite and typecheck:
+
+```sh
+pnpm -C apps/kimi-code exec vitest run
+pnpm -C apps/kimi-code run typecheck
+```
+
+## CI
+
+The upstream `.github/workflows/ci.yml` runs on `main`: `pnpm run build` plus
+the smoke test, the sharded test suite, `pi-tui` on `node:test`, the v1-engine
+VS Code suite, lint, and typecheck. It is enabled on this fork, and this fork
+adds a `workflow_dispatch` trigger so it can also be run by hand:
+
+```sh
+gh workflow run CI -R Nemo-010/kimi-code
+```
+
+## Releases
+
+Native binaries are attached to this fork's GitHub Releases, built from `main`
+with the commands in [Build](#build). The current release is
+[`v2.1.0-fork.1`](https://github.com/Nemo-010/kimi-code/releases/tag/v2.1.0-fork.1):
+
+- `kimi-code-linux-x64.zip` — Node SEA single executable, linux-x64, unsigned.
+- `kimi-code-linux-x64.zip.sha256`.
+
+```sh
+unzip kimi-code-linux-x64.zip
+./kimi --version
+sha256sum -c kimi-code-linux-x64.zip.sha256
+```
+
+Other platforms are produced by the upstream native-bundle workflow; this fork
+publishes only what it builds.
 
 ## License
 
-Released under the [MIT License](LICENSE).
+MIT, unchanged from upstream. See [LICENSE](LICENSE).
