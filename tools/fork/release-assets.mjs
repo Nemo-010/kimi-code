@@ -12,6 +12,15 @@ export const MIN_APPIMAGE = 10 * 1024 * 1024;
 export const MIN_DESKTOP_APPIMAGE = 40 * 1024 * 1024;
 export const MIN_DESKTOP_INSTALLER = 20 * 1024 * 1024;
 
+// Every desktop artifact carries its platform, because `${arch}` alone made a
+// macOS `Kimi-Code-Desktop-2.1.0-x64.zip` look like a Linux portable build.
+export const DESKTOP_PLATFORMS = [
+  { label: 'macOS installer', pattern: /^Kimi-Code-Desktop-.+-macos-.+\.(dmg|zip)$/ },
+  { label: 'Windows installer', pattern: /^Kimi-Code-Desktop-.+-windows-.+\.exe$/ },
+  { label: 'Linux portable zip', pattern: /^Kimi-Code-Desktop-.+-linux-.+\.zip$/ },
+  { label: 'Linux package', pattern: /^Kimi-Code-Desktop-.+-linux-.+\.deb$/ },
+];
+
 export function expectedAssets() {
   const expected = [];
   for (const target of NATIVE_TARGETS) {
@@ -25,8 +34,12 @@ export function expectedAssets() {
   return expected;
 }
 
-export function desktopInstallerPattern() {
-  return /^Kimi-Code-Desktop-.+\.(dmg|zip|exe|deb)$/;
+/** Asset names matching each platform, in `DESKTOP_PLATFORMS` order. */
+export function desktopAssetsByPlatform(names) {
+  return DESKTOP_PLATFORMS.map((platform) => ({
+    ...platform,
+    names: names.filter((name) => platform.pattern.test(name)),
+  }));
 }
 
 export function hostAppImageArch(arch = process.arch) {

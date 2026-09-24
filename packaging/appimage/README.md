@@ -29,6 +29,19 @@ staging the app) and a `make-appimage.sh` (`quick-sharun` + `--make-appimage`).
 - The Electron AppImage bundles the Electron runtime (Chromium). There is no way
   around that for the desktop client; the CLI AppImage has no Electron bloat.
 
+## Fonts (desktop only)
+
+`quick-sharun` copies `/etc/fonts/fonts.conf` into the AppDir but not its
+`conf.d` rules, and it only bundles `/usr/share/fonts` when a deployed binary
+hardcodes that path — Electron does not. `sharun` then only sets
+`FONTCONFIG_FILE`, and only when the host has no `/etc/fonts/fonts.conf`. On a
+host with no working fontconfig that leaves Chromium without a resolvable
+`sans` family, and the whole UI renders with no text at all.
+
+`make-appimage.sh` therefore ships `etc/fonts/conf.d`, a DejaVu font and its own
+`fonts.conf`, and `10-fontconfig.hook` points `FONTCONFIG_PATH` at them so the
+`conf.d` include resolves inside the AppDir on every host.
+
 ## Version
 
 `get-dependencies.sh` writes the version to `~/version`; `appimagetool` reads it

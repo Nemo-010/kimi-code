@@ -149,12 +149,27 @@ gh workflow run CI -R Nemo-010/kimi-code
 
 ## Releases
 
-Native binaries are attached to this fork's GitHub Releases, built from `main`
-with the commands in [Build](#build). The current release is
-[`v2.1.0-fork.1`](https://github.com/Nemo-010/kimi-code/releases/tag/v2.1.0-fork.1):
+Native binaries, desktop installers and Linux AppImages are attached to this
+fork's GitHub Releases, built from `main` with the commands in [Build](#build).
+The latest versioned release is
+[`v2.1.0-fork.2`](https://github.com/Nemo-010/kimi-code/releases/tag/v2.1.0-fork.2),
+and a rolling pre-release of `main` is kept at
+[`continuous`](https://github.com/Nemo-010/kimi-code/releases/tag/continuous).
 
-- `kimi-code-linux-x64.zip` — Node SEA single executable, linux-x64, unsigned.
-- `kimi-code-linux-x64.zip.sha256`.
+- `kimi-code-<target>.zip` (+ `.sha256`) — Node SEA single executable for
+  `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64` and
+  `win32-arm64`, unsigned. A single static-ish binary: it uses the host libc.
+- `kimi-code-<arch>.AppImage` — the CLI, `x86_64`/`aarch64`, carrying its own
+  libraries.
+- `Kimi-Code-Desktop-<arch>.AppImage` — the desktop client,
+  `x86_64`/`aarch64`, carrying its own libraries *and* its own fonts.
+- `Kimi-Code-Desktop-<version>-linux-<arch>.zip` — the desktop client with no
+  installer, for a distro that already has GTK/NSS. Prefer the AppImage: only
+  that one carries the libraries.
+- `Kimi-Code-Desktop-<version>-linux-<arch>.deb`,
+  `-macos-<arch>.{dmg,zip}` and `-windows-<arch>.exe` — installers. Every
+  desktop artifact names its platform, because the macOS auto-update zip is
+  also a `.zip`.
 
 ```sh
 unzip kimi-code-linux-x64.zip
@@ -165,8 +180,10 @@ sha256sum -c kimi-code-linux-x64.zip.sha256
 The fork's release pipeline is `.github/workflows/fork-release.yml`
 (`workflow_dispatch` with a `tag`): it builds the native bundles, the desktop
 installers and the pkgforge AppImages, validates the artifact set, attaches them
-to the release tag, and smoke-tests the published assets. A rolling pre-release
-is kept at the fixed `continuous` tag by `.github/workflows/continuous-release.yml`.
+to the release tag, and smoke-tests the published assets (including launching
+the desktop AppImage and the Linux desktop zip under a dummy display). A rolling
+pre-release is kept at the fixed `continuous` tag by
+`.github/workflows/continuous-release.yml`.
 The upstream `release.yml` is gated to the `MoonshotAI` organisation, so it does
 not run on this fork. Other platforms are produced by the upstream native-bundle
 workflow; this fork publishes only what it builds.

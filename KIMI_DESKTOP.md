@@ -41,6 +41,12 @@ the only option that neither orphans servers nor kills another client's.
 listener uses the current `(details) => details.message` shape.
 - The Linux AppImage is produced with pkgforge-dev's `quick-sharun` from the
 `electron-builder --dir` output, not by electron-builder's own AppImage target.
+- The desktop AppImage has to ship its own fontconfig rules and a font. Chromium
+renders with no text at all when fontconfig cannot resolve `sans`; see
+`packaging/appimage/README.md`.
+- Desktop artifact names carry the platform
+(`Kimi-Code-Desktop-2.1.0-linux-x64.zip`, `…-macos-arm64.dmg`), because the
+macOS auto-update zip and a Linux portable zip are both `.zip`.
 - The Nix `pnpmDeps` hash in `flake.nix` still has to be refreshed after the
 lockfile change (no Nix in the environment that produced the restore).
 
@@ -433,7 +439,8 @@ cannot be cross-built. Restoring it means restoring:
 4. macOS: keychain setup, strip the `Developer ID Application: ` prefix from
    `CSC_NAME` (electron-builder rejects it), decode the notarization key
 5. `pnpm --filter @moonshot-ai/kimi-desktop run dist`
-6. upload `*.dmg`, `*.zip`, `*.exe`, `*.AppImage`, `*.deb`
+6. upload `*.dmg`, `*.zip`, `*.exe`, `*.AppImage`, `*.deb` (the Linux `dist`
+   run also emits the no-install `Kimi-Code-Desktop-<version>-linux-<arch>.zip`)
 
 The helper actions still exist in this repo:
 `.github/actions/macos-keychain-setup` and `macos-keychain-cleanup`. Reuse them
@@ -500,9 +507,13 @@ old code.
       for its `[kimi-desktop] connected to …` line (`verify-release.mjs`).
       The web UI itself is not asserted, only that the window process reaches a
       healthy server
-- [x] the `.deb` target is wired up; building it locally needs electron-builder's
-      bundled `fpm`, which wants `libcrypt.so.1` — present on the CI runners
-      (`desktop-build.yml` builds it there)
+- [x] the `.deb` and Linux portable `.zip` targets are wired up; building them
+      locally needs electron-builder's bundled `fpm`, which wants `libcrypt.so.1`
+      — present on the CI runners (`desktop-build.yml` builds them there)
+- [x] the desktop AppImage bundles `etc/fonts/conf.d` and a DejaVu font, and
+      `10-fontconfig.hook` points `FONTCONFIG_PATH` at them — without that a host
+      with no fontconfig renders the UI with no text (this is what
+      `Kimi-Code-Desktop-x86_64.AppImage` shipped before the fix)
 - [x] restoring CI: `desktop-build.yml` with `workflow_dispatch`, and the
       `desktop-artifacts` job in `release.yml`
 - [x] a fork-safe release pipeline (`fork-release.yml`) and pkgforge AppImages

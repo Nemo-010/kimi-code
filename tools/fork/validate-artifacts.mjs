@@ -11,7 +11,7 @@ import { basename, join } from 'node:path';
 
 import {
   MIN_DESKTOP_INSTALLER,
-  desktopInstallerPattern,
+  desktopAssetsByPlatform,
   expectedAssets,
 } from './release-assets.mjs';
 
@@ -94,16 +94,19 @@ Options:
   }
 
   if (!options.allowMissingDesktop) {
-    const installers = files.filter((f) => desktopInstallerPattern().test(basename(f)));
-    if (installers.length === 0) {
-      problems.push('no desktop installer (.dmg/.zip/.exe/.deb)');
-      console.log(`  ${paint(C.red, '✗')} desktop installer (missing)`);
-    }
-    for (const installer of installers) {
-      const size = statSync(installer).size;
-      const ok = size >= MIN_DESKTOP_INSTALLER;
-      if (!ok) problems.push(`${basename(installer)} is only ${size} bytes`);
-      console.log(`  ${ok ? paint(C.green, '✓') : paint(C.red, '✗')} ${basename(installer)} (${(size / 1024 / 1024).toFixed(1)} MiB)`);
+    const names = files.map((f) => basename(f));
+    for (const platform of desktopAssetsByPlatform(names)) {
+      if (platform.names.length === 0) {
+        problems.push(`no ${platform.label}`);
+        console.log(`  ${paint(C.red, '✗')} ${platform.label} (missing)`);
+        continue;
+      }
+      for (const name of platform.names) {
+        const size = statSync(byName.get(name)).size;
+        const ok = size >= MIN_DESKTOP_INSTALLER;
+        if (!ok) problems.push(`${name} is only ${size} bytes`);
+        console.log(`  ${ok ? paint(C.green, '✓') : paint(C.red, '✗')} ${name} (${(size / 1024 / 1024).toFixed(1)} MiB)`);
+      }
     }
   }
 

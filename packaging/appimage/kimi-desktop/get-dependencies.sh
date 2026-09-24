@@ -9,6 +9,10 @@ echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
 get-debloated-pkgs --add-common --prefer-nano
 
+echo "Installing a font for the bundled fontconfig..."
+echo "---------------------------------------------------------------"
+pacman -S --noconfirm --needed ttf-dejavu
+
 echo "Staging the unpacked Electron app..."
 echo "---------------------------------------------------------------"
 mkdir -p ./AppDir/bin

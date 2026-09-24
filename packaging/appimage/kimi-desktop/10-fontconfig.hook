@@ -1,0 +1,9 @@
+#!/bin/sh
+# The AppImage ships its own fontconfig rules (etc/fonts/conf.d) and a font
+# (share/fonts). sharun only points FONTCONFIG_FILE at the bundled fonts.conf
+# when the host has no /etc/fonts/fonts.conf, and it never sets FONTCONFIG_PATH,
+# so without this the `conf.d` include of the bundled fonts.conf is resolved
+# against the host and the generic families (sans-serif, monospace) never
+# resolve. Pointing FONTCONFIG_PATH at the bundled directory also makes the
+# bundled fonts.conf win over the host's, so every host gets the same UI fonts.
+export FONTCONFIG_PATH="$APPDIR/etc/fonts"

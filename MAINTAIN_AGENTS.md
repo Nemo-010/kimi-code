@@ -114,6 +114,15 @@ Rules that are easy to get wrong:
   still stripped.
 - The CLI `.desktop` must say `Exec=kimi` (the deployed binary name), or
   `quick-sharun`'s `_check_main_bin` fails.
+- **The desktop AppImage must ship its own fonts.** `quick-sharun` copies
+  `/etc/fonts/fonts.conf` but not `conf.d`, and it only bundles
+  `/usr/share/fonts` when a deployed binary hardcodes that path (Electron does
+  not). `sharun` only sets `FONTCONFIG_FILE`, and only when the host has no
+  `/etc/fonts/fonts.conf`. On a host without fontconfig that leaves Chromium
+  with no resolvable `sans` family and the whole UI renders with no text.
+  `packaging/appimage/kimi-desktop` therefore ships `etc/fonts/conf.d`, a DejaVu
+  font and its own `fonts.conf`, plus a `10-fontconfig.hook` that sets
+  `FONTCONFIG_PATH`. Do not drop any of those.
 - Don't take guidance from `docs.appimage`, `appimage-builder`,
   `appimagekit` or `linuxdeploy` — it is wrong for `quick-sharun`.
 
@@ -170,10 +179,14 @@ node tools/fork/verify-release.mjs --tag continuous
 node tools/fork/verify-release.mjs --tag v2.1.0-fork.2 --smoke
 ```
 
-`--smoke` downloads the host-arch native zip and both AppImages, verifies the
-`.sha256`, extracts the AppImages with `--appimage-extract`, runs the CLI and
-the desktop's bundled backend with `--version`, and launches the desktop under
-`xvfb-run` until it reports that it connected to its server.
+`--smoke` downloads the host-arch native zip, both AppImages and the Linux
+desktop zip; verifies the `.sha256`; extracts the AppImages with
+`--appimage-extract`; runs the CLI and the desktop's bundled backend with
+`--version`; checks that the desktop AppImage contains `etc/fonts/conf.d` and a
+font and that `fc-match sans-serif` resolves to a non-monospace family; and
+launches the desktop AppImage *and* the unpacked Linux zip under `xvfb-run`
+until each reports that it connected to its server, failing if Chromium reports
+that it could not find a font.
 
 ### Cutting a versioned release
 

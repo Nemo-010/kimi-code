@@ -13,14 +13,14 @@
 
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import {
   MIN_APPIMAGE,
   MIN_DESKTOP_INSTALLER,
-  desktopInstallerPattern,
+  desktopAssetsByPlatform,
   expectedAssets,
   hostAppImageArch,
 } from './release-assets.mjs';
@@ -95,17 +95,16 @@ function hasCommand(name) {
   }
 }
 
-// Run the desktop app under a dummy display and wait for it to connect to the
+// Run a desktop app under a dummy display and wait for it to connect to the
 // bundled server. Uses xvfb-run when present; otherwise reports a skip.
-async function guiSmoke(squash, dir) {
-  const name = 'desktop AppImage GUI (dummy display)';
-  if (!hasCommand('xvfb-run')) return [name, true, 'skipped: no xvfb-run'];
+async function guiSmoke(launch, dir, label, { tolerateMissingLibs = false } = {}) {
+  if (!hasCommand('xvfb-run')) return [label, true, 'skipped: no xvfb-run'];
   const home = mkdtempSync(join(dir, 'home-'));
   const child = spawn(
     'xvfb-run',
     [
       '-a',
-      join(squash, 'AppRun'),
+      launch,
       '--no-sandbox',
       '--disable-gpu',
       // GitHub runners have a tiny /dev/shm; keep Chromium out of it.
@@ -143,20 +142,95 @@ async function guiSmoke(squash, dir) {
       child.kill('SIGKILL');
     }
   }
-  if (connected) {
-    return [name, true, output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''];
+  const missingFont = output.includes('Could not find any font');
+  if (connected && !missingFont) {
+    return [label, true, output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? ''];
+  }
+  if (!connected && tolerateMissingLibs) {
+    // The zip uses the distro's libraries, and a runner is not the target
+    // distro. A missing shared library is a skip, not a release failure.
+    const missing = /error while loading shared libraries: ([^:]+)/.exec(output);
+    if (missing !== null) return [label, true, `skipped: host is missing ${missing[1]}`];
   }
   let detail = output.slice(-400);
+  if (missingFont) detail = `fontconfig could not resolve a family: ${detail}`;
   try {
     const log = readFileSync(join(home, 'server', 'kimi-desktop.log'), 'utf8').trim().split('\n').slice(-5).join(' | ');
     if (log.length > 0) detail = `${detail} | server log: ${log}`;
   } catch {
     // No server log; the captured output is all we have.
   }
-  return [name, false, detail];
+  return [label, false, detail];
 }
 
-async function runSmoke(repo, tag, arch, dir) {
+// The desktop AppImage has to carry its own fontconfig rules and at least one
+// real font. sharun only points FONTCONFIG_FILE at the bundled fonts.conf when
+// the host has no /etc/fonts/fonts.conf, so a host without fontconfig (or one
+// whose generic-family rules never load) leaves Chromium without a "sans"
+// family and the whole UI renders with no text.
+function fontChecks(squash, dir) {
+  const results = [];
+  const record = (name, ok, detail) => results.push({ name, ok, detail });
+  const count = (path, test) => {
+    try {
+      return readdirSync(path).filter(test).length;
+    } catch {
+      return 0;
+    }
+  };
+  const rules = count(join(squash, 'etc', 'fonts', 'conf.d'), (f) => f.endsWith('.conf'));
+  record('desktop AppImage fontconfig rules', rules >= 10, `${rules} rule(s) in etc/fonts/conf.d`);
+  const fonts = count(join(squash, 'share', 'fonts'), (f) => /\.(ttf|otf|ttc)$/i.test(f));
+  record('desktop AppImage bundled fonts', fonts >= 1, `${fonts} font file(s) in share/fonts`);
+  if (!hasCommand('fc-match')) return results;
+  const env = {
+    ...process.env,
+    FONTCONFIG_PATH: join(squash, 'etc', 'fonts'),
+    FONTCONFIG_FILE: join(squash, 'etc', 'fonts', 'fonts.conf'),
+    XDG_CACHE_HOME: mkdtempSync(join(dir, 'fc-cache-')),
+  };
+  try {
+    const sans = sh('fc-match', ['--format=%{family}|%{file}', 'sans-serif'], { env }).split('|');
+    const mono = sh('fc-match', ['--format=%{family}|%{file}', 'monospace'], { env }).split('|');
+    const ok = sans[0] !== mono[0] && !/mono/i.test(sans[0]) && existsSync(sans[1]);
+    record('desktop AppImage font resolution', ok, `sans-serif -> ${sans[0]}, monospace -> ${mono[0]}`);
+  } catch (error) {
+    record('desktop AppImage font resolution', false, error instanceof Error ? error.message : String(error));
+  }
+  return results;
+}
+
+// The Linux desktop zip is the no-install counterpart of the .deb. Check that
+// it really contains a runnable binary and not, say, a macOS app bundle.
+async function desktopZipSmoke(repo, tag, names, dir) {
+  const results = [];
+  const record = (name, ok, detail) => results.push({ name, ok, detail });
+  const name = names.find((asset) => /^Kimi-Code-Desktop-.+-linux-.+\.zip$/.test(asset));
+  if (name === undefined) {
+    record('desktop Linux portable zip', false, 'no Kimi-Code-Desktop-*-linux-*.zip asset published');
+    return results;
+  }
+  try {
+    const zipPath = download(repo, tag, name, dir);
+    const out = join(dir, 'desktop-zip');
+    sh('unzip', ['-oq', zipPath, '-d', out]);
+    const binary = join(out, 'kimi-desktop');
+    if (!existsSync(binary)) {
+      record(`${name} binary`, false, 'no kimi-desktop at the archive root');
+      return results;
+    }
+    const mode = statSync(binary).mode;
+    const executable = (mode & 0o111) !== 0;
+    record(`${name} executable bit`, executable, executable ? '' : `mode ${(mode & 0o777).toString(8)}`);
+    if (!executable) return results;
+    record(...(await guiSmoke(binary, dir, `${name} GUI (dummy display)`, { tolerateMissingLibs: true })));
+  } catch (error) {
+    record(name, false, error instanceof Error ? error.message : String(error));
+  }
+  return results;
+}
+
+async function runSmoke(repo, tag, arch, dir, names) {
   const nativeTarget = `linux-${arch === 'aarch64' ? 'arm64' : 'x64'}`;
   const results = [];
   const record = (name, ok, detail) => {
@@ -206,17 +280,18 @@ async function runSmoke(repo, tag, arch, dir) {
       } else {
         const backend = sh(join(squash, 'bin', 'kimi'), ['--version']);
         record(`${appimage} bundled kimi --version`, /^\d+\.\d+\.\d+/.test(backend), backend);
+        for (const check of fontChecks(squash, dir)) record(check.name, check.ok, check.detail);
         // A packaged Electron app does not handle --version, so the only way to
         // prove the desktop runs is to launch it under a dummy display and wait
         // for it to bring up (or attach to) its server.
-        record(...(await guiSmoke(squash, dir)));
-        record(...(await guiSmoke(squash, dir)));
+        record(...(await guiSmoke(join(squash, 'AppRun'), dir, `${appimage} GUI (dummy display)`)));
       }
       if (!optionsKeep) rmSync(extractDir, { recursive: true, force: true });
     } catch (error) {
       record(appimage, false, error.message);
     }
   }
+  for (const check of await desktopZipSmoke(repo, tag, names, dir)) record(check.name, check.ok, check.detail);
   return results;
 }
 
@@ -241,6 +316,7 @@ Options:
   const repo = resolveRepo(options.repo);
   console.log(paint(C.bold, `Verifying ${repo}@${options.tag}`));
   const assets = listAssets(repo, options.tag);
+  const names = assets.map((a) => a.name);
   const byName = new Map(assets.map((a) => [a.name, a]));
   console.log(`  ${assets.length} asset(s) published`);
 
@@ -259,15 +335,19 @@ Options:
     }
   }
 
-  const installers = assets.filter((a) => desktopInstallerPattern().test(a.name));
-  if (installers.length === 0) {
-    problems.push('no desktop installer (.dmg/.zip/.exe/.deb)');
-    console.log(`  ${paint(C.red, '✗')} desktop installer (missing)`);
-  } else {
-    for (const a of installers) {
-      const small = a.size < MIN_DESKTOP_INSTALLER;
-      if (small) problems.push(`suspiciously small ${a.name} (${a.size} bytes)`);
-      console.log(`  ${small ? paint(C.yellow, '!') : paint(C.green, '✓')} ${a.name} (${(a.size / 1024 / 1024).toFixed(1)} MiB)`);
+  for (const platform of desktopAssetsByPlatform(names)) {
+    if (platform.names.length === 0) {
+      problems.push(`no ${platform.label}`);
+      console.log(`  ${paint(C.red, '✗')} ${platform.label} (missing)`);
+      continue;
+    }
+    for (const name of platform.names) {
+      const asset = byName.get(name);
+      const small = asset.size < MIN_DESKTOP_INSTALLER;
+      if (small) problems.push(`suspiciously small ${name} (${asset.size} bytes)`);
+      console.log(
+        `  ${small ? paint(C.yellow, '!') : paint(C.green, '✓')} ${name} (${(asset.size / 1024 / 1024).toFixed(1)} MiB)`,
+      );
     }
   }
 
@@ -275,7 +355,7 @@ Options:
   if (options.smoke) {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-verify-'));
     try {
-      smoke = await runSmoke(repo, options.tag, options.arch, dir);
+      smoke = await runSmoke(repo, options.tag, options.arch, dir, names);
     } finally {
       if (!options.keep) rmSync(dir, { recursive: true, force: true });
       else console.log(paint(C.dim, `\nkept ${dir}`));

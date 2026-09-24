@@ -45,13 +45,13 @@ module.exports = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
     target: ['dmg', 'zip'],
-    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
+    artifactName: 'Kimi-Code-Desktop-${version}-macos-${arch}.${ext}',
     notarize,
   },
 
   win: {
     target: ['nsis'],
-    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
+    artifactName: 'Kimi-Code-Desktop-${version}-windows-${arch}.${ext}',
   },
 
   nsis: {
@@ -63,10 +63,11 @@ module.exports = {
   linux: {
     category: 'Development',
     // The truly portable AppImage is produced by quick-sharun from the
-    // `--dir` output (see packaging/appimage), so electron-builder only makes
-    // the .deb here.
-    target: ['deb'],
-    artifactName: 'Kimi-Code-Desktop-${version}-${arch}.${ext}',
+    // `--dir` output (see packaging/appimage), so electron-builder makes the
+    // .deb and a no-install zip here. The zip needs the distro's GTK/NSS at
+    // runtime; the AppImage is the one that carries its own libraries.
+    target: ['deb', 'zip'],
+    artifactName: 'Kimi-Code-Desktop-${version}-linux-${arch}.${ext}',
     maintainer: 'Moonshot AI',
   },
 };

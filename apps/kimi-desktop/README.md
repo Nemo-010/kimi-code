@@ -85,6 +85,14 @@ The portable Linux AppImage is built by `.github/workflows/appimage.yml` with
 pkgforge-dev's `quick-sharun` (see `packaging/appimage/kimi-desktop`). That path
 uses `dist:dir` output, not the electron-builder AppImage target.
 
+On Linux `dist` also writes a no-install
+`Kimi-Code-Desktop-<version>-linux-<arch>.zip` (the `zip` target). It is a plain
+archive of the unpacked app — it needs the distro's GTK/NSS, and the bundled SEA
+uses the host libc — so prefer the AppImage when you want something that runs
+anywhere. Every desktop artifact names its platform, because the macOS
+auto-update zip is also a `.zip` and used to be indistinguishable from a Linux
+one.
+
 ### macOS signing + notarization
 
 An **unsigned** macOS build shows *"app is damaged and can't be opened"* once it
