@@ -569,6 +569,15 @@ function installBridge(): void {
     const message = typeof entry.message === 'string' ? entry.message : '';
     process.stdout.write(`[kimi-desktop] renderer ${level}: ${message}\n`);
   });
+  ipcMain.on('kimi-desktop:onboarded', () => {
+    // The web UI keeps the flag in its own storage; recording it here makes the
+    // state survive a cleared profile, which is what the flag is for.
+    try {
+      writeFileSync(join(app.getPath('userData'), 'onboarded'), '1', { mode: 0o600 });
+    } catch {
+      // Onboarding state is a convenience; never fail the renderer over it.
+    }
+  });
   ipcMain.on('kimi-desktop:menu-action', (_event, action: unknown) => {
     if (typeof action === 'string') send('kimi-desktop:menu-action', action);
   });

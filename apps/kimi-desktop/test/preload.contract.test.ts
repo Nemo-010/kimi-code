@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 // exist (locally, or after a packaging build) the emitted file is checked too,
 // because that is what actually ships.
 const source = readFileSync(join(__dirname, '..', 'src', 'preload', 'index.ts'), 'utf8');
+const MAIN = readFileSync(join(__dirname, '..', 'src', 'main', 'index.ts'), 'utf8');
 const bundlePath = join(__dirname, '..', 'out', 'preload', 'index.cjs');
 
 describe('desktop preload', () => {
@@ -39,6 +40,21 @@ describe('desktop preload', () => {
 
   it('reports the theme through the main process instead of an injected console tag', () => {
     expect(source).toContain('kimi-browser:theme');
+  });
+
+  it('provides getPathForFile, which the composer gates drag and drop on', () => {
+    // The bundle checks `typeof bridge.getPathForFile == "function"` before it
+    // will resolve a dropped file to a path, so its absence removed the feature
+    // without any error being raised.
+    expect(source).toContain('getPathForFile');
+    expect(source).toContain('webUtils.getPathForFile');
+    expect(source).toContain('webUtils');
+  });
+
+  it('provides setOnboarded, which the web UI calls when onboarding ends', () => {
+    expect(source).toContain('setOnboarded');
+    expect(source).toContain("send('kimi-desktop:onboarded'");
+    expect(MAIN).toContain("ipcMain.on('kimi-desktop:onboarded'");
   });
 
   it('carries the terminal panel and the daemon protocol it speaks', () => {

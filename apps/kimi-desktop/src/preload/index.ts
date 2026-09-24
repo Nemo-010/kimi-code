@@ -17,7 +17,7 @@
 //
 // Everything crossing these bridges is validated here: the renderer is the web
 // UI, but it still renders model output, so nothing is trusted.
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { IpcRendererEvent } from 'electron';
 
 import { TerminalPanel, readCredential } from '../renderer/terminal-panel';
@@ -400,6 +400,22 @@ ipcRenderer.on('kimi-browser:surface-request', (event, payload: unknown) => {
 const kimiDesktop = {
   platform: process.platform,
   version: process.versions.electron,
+  /**
+   * The filesystem path of a dropped or pasted `File`, so the composer can send
+   * a real path instead of trying to read bytes. The bundle gates its
+   * drag-and-drop handling on this being a function, so leaving it out silently
+   * removed the feature.
+   */
+  getPathForFile: (file: unknown): string => {
+    if (!(file instanceof File)) return '';
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
+  /** Record that onboarding finished, so a fresh profile does not see it again. */
+  setOnboarded: (): void => send('kimi-desktop:onboarded', {}),
   setTheme: (theme: unknown): boolean => kimiBrowser.setTheme(theme),
   /** Open or close the Terminal panel; bound to Ctrl/Cmd+` in the main process. */
   toggleTerminal: (): void => {
