@@ -644,8 +644,10 @@ export class SubAgentEventHandler {
     event: Event,
     subagentId: string,
   ): void {
-    if (event.type === 'assistant.delta' || event.type === 'thinking.delta') {
-      progress.appendModelDelta({ agentId: subagentId, delta: event.delta });
+    if (event.type === 'assistant.delta') {
+      progress.appendModelDelta({ agentId: subagentId, delta: event.delta, kind: 'text' });
+    } else if (event.type === 'thinking.delta') {
+      progress.appendModelDelta({ agentId: subagentId, delta: event.delta, kind: 'thinking' });
     } else if (event.type === 'tool.call.started') {
       progress.recordToolCall({ agentId: subagentId, toolCallId: event.toolCallId });
     } else if (event.type === 'agent.status.updated' && event.model !== undefined) {

@@ -53,6 +53,8 @@ export interface SubagentStepActivity {
   readonly step: number;
   /** Assistant text of this step, trailing window only. */
   textTail: string;
+  /** Thinking text of this step, trailing window only. */
+  thinkingTail: string;
   readonly toolCalls: SubToolCallActivity[];
   retrying?: string;
 }
@@ -148,7 +150,7 @@ export class SubagentActivityStore {
     switch (event.type) {
       case 'turn.step.started': {
         const record = this.recordFor(event.agentId);
-        record.steps.push({ step: event.step, textTail: '', toolCalls: [] });
+        record.steps.push({ step: event.step, textTail: '', thinkingTail: '', toolCalls: [] });
         record.totalSteps += 1;
         while (record.steps.length > MAX_SUBAGENT_ACTIVITY_STEPS) {
           const evicted = record.steps.shift();
@@ -167,6 +169,13 @@ export class SubagentActivityStore {
         const record = this.recordFor(event.agentId);
         const step = this.currentStep(record);
         step.textTail = tail(step.textTail + event.delta, SUBAGENT_STEP_TEXT_TAIL_CHARS);
+        this.bump(record);
+        return;
+      }
+      case 'thinking.delta': {
+        const record = this.recordFor(event.agentId);
+        const step = this.currentStep(record);
+        step.thinkingTail = tail(step.thinkingTail + event.delta, SUBAGENT_STEP_TEXT_TAIL_CHARS);
         this.bump(record);
         return;
       }
@@ -321,7 +330,7 @@ export class SubagentActivityStore {
   private currentStep(record: SubagentActivityRecord): SubagentStepActivity {
     let step = record.steps.at(-1);
     if (step === undefined) {
-      step = { step: 0, textTail: '', toolCalls: [] };
+      step = { step: 0, textTail: '', thinkingTail: '', toolCalls: [] };
       record.steps.push(step);
     }
     return step;

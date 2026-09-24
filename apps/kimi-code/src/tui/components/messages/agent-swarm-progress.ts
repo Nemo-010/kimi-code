@@ -27,6 +27,8 @@ const BRAILLE_LEVELS = ['⣀', '⣄', '⣤', '⣦', '⣶', '⣷', '⣿'] as cons
 const PHASE_LABEL_WIDTH = 'Completed'.length;
 const MIN_LABEL_WIDTH = PHASE_LABEL_WIDTH;
 const MAX_LATEST_MODEL_CHARS = 2_000;
+// Per-member tail rows rendered by the Ctrl+O expanded swarm detail.
+const EXPANDED_MEMBER_LINES = 6;
 const COMPLETE_FILL_MS = 360;
 const FAILED_PLACEHOLDER_RED_FACTOR = 0.75;
 const FAILED_PLACEHOLDER_NON_RED_FACTOR = 0.25;
@@ -119,6 +121,10 @@ interface AgentSwarmMember {
   ticks: number;
   itemText: string;
   latestModelText: string;
+  /** Thinking-only tail, kept separate so the expanded view can label it. */
+  latestThinkingText: string;
+  /** Assistant-output-only tail, kept separate so the expanded view can label it. */
+  latestText: string;
   completedText?: string;
   failureText?: string;
   cancelledLabelText?: string;
@@ -216,6 +222,7 @@ export class AgentSwarmProgressComponent implements Component {
   private modelDisplay = '';
   private effortDisplay = '';
   private inputComplete = false;
+  private expanded = false;
   private failed = false;
   private aborted = false;
   private itemsStarted = false;
@@ -242,6 +249,27 @@ export class AgentSwarmProgressComponent implements Component {
     if (this.timer === undefined) return;
     clearInterval(this.timer);
     this.timer = undefined;
+  }
+
+  /** Ctrl+O expands the panel into a per-member thinking/output trace. */
+  setExpanded(expanded: boolean): void {
+    if (this.expanded === expanded) return;
+    this.expanded = expanded;
+    this.markDirty();
+  }
+
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  hasHiddenContent(): boolean {
+    return this.members.some(
+      (member) =>
+        member.latestThinkingText.trim().length > 0 ||
+        member.latestText.trim().length > 0 ||
+        (member.completedText?.trim().length ?? 0) > 0 ||
+        (member.failureText?.trim().length ?? 0) > 0,
+    );
   }
 
   invalidate(): void {
@@ -391,12 +419,20 @@ export class AgentSwarmProgressComponent implements Component {
   appendModelDelta(input: {
     readonly agentId: string;
     readonly delta: string;
+    readonly kind?: 'thinking' | 'text';
   }): void {
     const member = this.findMemberByAgentId(input.agentId);
     if (member === undefined || input.delta.length === 0) return;
     member.latestModelText = `${member.latestModelText}${input.delta}`.slice(
       -MAX_LATEST_MODEL_CHARS,
     );
+    if (input.kind === 'thinking') {
+      member.latestThinkingText = `${member.latestThinkingText}${input.delta}`.slice(
+        -MAX_LATEST_MODEL_CHARS,
+      );
+    } else if (input.kind === 'text') {
+      member.latestText = `${member.latestText}${input.delta}`.slice(-MAX_LATEST_MODEL_CHARS);
+    }
     this.promoteToRunning(member, Date.now(), true);
     this.markDirty();
     this.startAnimationIfNeeded();
@@ -544,6 +580,7 @@ export class AgentSwarmProgressComponent implements Component {
             snapshots,
             nowMs,
           ),
+          ...this.renderExpandedDetails(innerWidth),
           '',
           this.renderStatusLine(innerWidth),
           '',
@@ -569,6 +606,34 @@ export class AgentSwarmProgressComponent implements Component {
   private hasTimeDependentRender(): boolean {
     if (this.toolCallActive && this.activitySpinnerText !== undefined) return true;
     return this.hasAnimatedMembers();
+  }
+
+  /**
+   * Ctrl+O detail: for each member that has streamed thinking or output, a
+   * labelled block with the tail of each. Thinking rows are prefixed `~` so
+   * they stay distinguishable from assistant output.
+   */
+  private renderExpandedDetails(width: number): string[] {
+    if (!this.expanded || this.members.length === 0) return [];
+    const out: string[] = [];
+    const colors = this.colors;
+    for (const member of this.members) {
+      const thinking = tailNonEmptyLines(member.latestThinkingText, EXPANDED_MEMBER_LINES);
+      const text = tailNonEmptyLines(member.latestText, EXPANDED_MEMBER_LINES);
+      if (thinking.length === 0 && text.length === 0) continue;
+      const label = member.itemText.length > 0 ? member.itemText : PHASE_LABELS[member.phase];
+      out.push('');
+      out.push(
+        `${chalk.hex(colors.primary)(member.id)} ${chalk.hex(colors.textDim)(truncateToWidth(label, Math.max(1, width - 4)))}`,
+      );
+      for (const line of thinking) {
+        out.push(`  ${chalk.hex(colors.textDim)(`~ ${line}`)}`);
+      }
+      for (const line of text) {
+        out.push(`  ${chalk.hex(colors.text)(line)}`);
+      }
+    }
+    return out;
   }
 
   private indentLines(lines: readonly string[], width: number): string[] {
@@ -966,6 +1031,8 @@ function createMembers(count: number, phase: AgentSwarmPhase): AgentSwarmMember[
     ticks: 0,
     itemText: '',
     latestModelText: '',
+    latestThinkingText: '',
+    latestText: '',
   }));
 }
 
@@ -978,6 +1045,8 @@ function clearMemberState(member: AgentSwarmMember, ...keys: ClearableMemberKey[
 // re-memoizes against the bounded terminal label.
 function releaseTerminalMemberText(member: AgentSwarmMember): void {
   member.latestModelText = '';
+  member.latestThinkingText = '';
+  member.latestText = '';
   delete member.cellCache;
 }
 
@@ -1834,6 +1903,15 @@ function latestNonEmptyLine(text: string): string {
     if (line.length > 0) return line;
   }
   return '';
+}
+
+function tailNonEmptyLines(text: string, maxLines: number): string[] {
+  if (text.length === 0) return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .slice(-maxLines);
 }
 
 function countPartialJsonObjectEntries(text: string, startIndex: number): number {

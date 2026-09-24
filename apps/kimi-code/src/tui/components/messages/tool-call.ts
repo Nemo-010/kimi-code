@@ -37,6 +37,7 @@ import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
+import { ThinkingComponent } from './thinking';
 import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
 import { ShellExecutionComponent } from './shell-execution';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
@@ -840,10 +841,16 @@ export class ToolCallComponent extends Container {
 
   private computeHiddenContent(): boolean {
     const { name, args } = this.toolCall;
-    // A solo Agent card with subagent state never renders its result body and
-    // its subagent block is a fixed-height window either way, so ctrl+o
-    // changes nothing there.
-    if (this.isSingleSubagentView()) return false;
+    // A solo Agent card renders the child's activity in a collapsed window;
+    // ctrl+o expands it to the full child thinking/text/error.
+    if (this.isSingleSubagentView()) {
+      return (
+        this.subagentThinkingText.trim().length > 0 ||
+        this.subagentText.trim().length > 0 ||
+        (this.subagentError?.trim().length ?? 0) > 0 ||
+        (this.subagentResultSummary?.trim().length ?? 0) > 0
+      );
+    }
     // Arguments cut off by max_tokens: the card shows a fixed "call never
     // executed" note in place of any preview, so there is nothing to expand.
     if (this.toolCall.truncated === true && this.result === undefined) return false;
@@ -2158,9 +2165,15 @@ export class ToolCallComponent extends Container {
     const phase = this.getDerivedSubagentPhase();
 
     // Every state shares the same skeleton — header, a one-line tool summary,
-    // and a fixed two-row content window — so the card height is identical
-    // while running and after it finishes (no end-of-run shrink).
+    // and a two-row content window while collapsed. ctrl+o expands the window
+    // to the full child output and prepends the child's thinking trace.
     this.addChild(new Text(this.buildSingleSubagentSummaryLine(), 0, 0));
+
+    if (this.expanded && this.subagentThinkingText.trim().length > 0) {
+      const thinking = new ThinkingComponent(this.subagentThinkingText.trimEnd(), true, 'finalized');
+      thinking.setExpanded(true);
+      this.addChild(thinking);
+    }
 
     if (phase === 'failed') {
       this.addChild(this.buildSingleSubagentResultWindow('error'));
@@ -2247,8 +2260,11 @@ export class ToolCallComponent extends Container {
         : content.tone === 'thinking'
           ? currentTheme.dim(content.text)
           : currentTheme.fg('textDim', content.text);
-    // Always exactly two rows (padded when short) so the live window matches
-    // the finished card's height.
+    // Collapsed: exactly two rows (padded when short) so the live window
+    // matches the finished card's height. Expanded: the full child stream.
+    if (this.expanded) {
+      return new PrefixedWrappedLine(`  ${gutter} `, `  ${gutter} `, styled);
+    }
     return new PrefixedWrappedLine(
       `  ${gutter} `,
       `  ${gutter} `,
@@ -2261,9 +2277,17 @@ export class ToolCallComponent extends Container {
   private buildSingleSubagentResultWindow(kind: 'output' | 'error'): Component {
     const gutter = currentTheme.dim('│');
     const source = kind === 'error' ? this.subagentError : this.subagentText;
-    const text = source === undefined ? '' : tailNonEmptyLines(source, 2).join('\n');
+    const text =
+      source === undefined
+        ? ''
+        : this.expanded
+          ? source.trimEnd()
+          : tailNonEmptyLines(source, 2).join('\n');
     const styled =
       kind === 'error' ? currentTheme.fg('error', text) : currentTheme.fg('text', text);
+    if (this.expanded) {
+      return new PrefixedWrappedLine(`  ${gutter} `, `  ${gutter} `, styled);
+    }
     return new PrefixedWrappedLine(
       `  ${gutter} `,
       `  ${gutter} `,

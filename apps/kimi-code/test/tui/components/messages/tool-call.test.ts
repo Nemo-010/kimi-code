@@ -1513,11 +1513,11 @@ describe('ToolCallComponent', () => {
     // No ctrl+o promise for the subagent window.
     expect(out).not.toContain('ctrl+o');
 
-    // The global ctrl+o expand toggle must NOT expand the window.
+    // The global ctrl+o expand toggle reveals the full live output.
     component.setExpanded(true);
     out = strip(component.render(120).join('\n'));
     expect(out).toContain('bash-line-9');
-    expect(out).not.toContain('bash-line-7');
+    expect(out).toContain('bash-line-0');
   });
 
   it('shows live output for generic subagent tools but not for recognized ones', () => {
@@ -2451,7 +2451,7 @@ describe('ToolCallComponent hasHiddenContent', () => {
 });
 
 describe('ToolCallComponent hasHiddenContent for a solo subagent card', () => {
-  it('is false because the fixed subagent window never changes with ctrl+o', () => {
+  it('is false with no child stream and true once the child has streamed content', () => {
     const component = new ToolCallComponent(
       { id: 'call_agent', name: 'Agent', args: { description: 'explore' } },
       undefined,
@@ -2463,6 +2463,9 @@ describe('ToolCallComponent hasHiddenContent for a solo subagent card', () => {
       is_error: false,
     });
     expect(component.hasHiddenContent()).toBe(false);
+
+    component.appendSubagentText('reasoning line', 'thinking');
+    expect(component.hasHiddenContent()).toBe(true);
     component.dispose();
   });
 });

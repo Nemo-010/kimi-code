@@ -100,8 +100,8 @@ describe('AgentActivityViewer', () => {
     const viewer = makeViewer({
       record: record({
         steps: [
-          { step: 8, textTail: '', toolCalls: [] },
-          { step: 9, textTail: '', toolCalls: [] },
+          { step: 8, textTail: '', thinkingTail: '', toolCalls: [] },
+          { step: 9, textTail: '', thinkingTail: '', toolCalls: [] },
         ],
         totalSteps: 12,
       }),
@@ -120,7 +120,7 @@ describe('AgentActivityViewer', () => {
         steps: [
           {
             step: 0,
-            textTail: 'Looking for the event bus definition.',
+            textTail: 'Looking for the event bus definition.', thinkingTail: '',
             toolCalls: [
               {
                 id: 't1',
@@ -158,7 +158,7 @@ describe('AgentActivityViewer', () => {
         steps: [
           {
             step: 0,
-            textTail: '',
+            textTail: '', thinkingTail: '',
             toolCalls: [
               {
                 id: 't1',
@@ -189,7 +189,7 @@ describe('AgentActivityViewer', () => {
   it('opens pinned to the latest activity and keeps scroll position when the user scrolled up', () => {
     const steps = Array.from({ length: 8 }, (_, i) => ({
       step: i,
-      textTail: `step ${String(i)} text`,
+      textTail: `step ${String(i)} text`, thinkingTail: '',
       toolCalls: [],
     }));
     const rec = record({ steps, totalSteps: 8 });
@@ -202,7 +202,7 @@ describe('AgentActivityViewer', () => {
     // the view must stay where the user parked it.
     viewer.handleInput('g');
     expect(renderPlain(viewer)).toContain('step 0 text');
-    rec.steps.push({ step: 8, textTail: 'step 8 text', toolCalls: [] });
+    rec.steps.push({ step: 8, textTail: 'step 8 text', thinkingTail: '', toolCalls: [] });
     rec.version += 1;
     viewer.setProps({ taskId: 'agent-task-1', info: agentTask(), record: rec, onClose: vi.fn() });
     const after = renderPlain(viewer);
@@ -246,7 +246,7 @@ describe('formatSubagentActivityPreview', () => {
         steps: [
           {
             step: 0,
-            textTail: 'Looking around.',
+            textTail: 'Looking around.', thinkingTail: '',
             toolCalls: [
               {
                 id: 't1',
@@ -291,7 +291,7 @@ describe('formatSubagentActivityPreview', () => {
         steps: [
           {
             step: 0,
-            textTail: '',
+            textTail: '', thinkingTail: '',
             toolCalls: [
               {
                 id: 't1',

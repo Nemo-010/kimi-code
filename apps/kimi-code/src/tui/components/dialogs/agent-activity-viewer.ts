@@ -35,6 +35,7 @@ import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData } from '#/tui/types';
 import { printableChar } from '#/tui/utils/printable-key';
 import { AssistantMessageComponent } from '../messages/assistant-message';
+import { ThinkingComponent } from '../messages/thinking';
 import { extractKeyArgument } from '../messages/tool-call';
 import { pickChip } from '../messages/tool-renderers/chip';
 import { pickResultRenderer } from '../messages/tool-renderers/registry';
@@ -187,6 +188,14 @@ export class AgentActivityViewer extends Container implements Focusable {
       out.push(currentTheme.dim(`── step ${String(step.step)} ──`));
       if (step.retrying !== undefined) {
         out.push(currentTheme.fg('warning', `${MESSAGE_INDENT}↻ ${step.retrying}`));
+      }
+      const thinkingTail = step.thinkingTail ?? '';
+      if (thinkingTail.trim().length > 0) {
+        // Ctrl+O expands the thinking block together with the tool results.
+        const thinking = new ThinkingComponent(thinkingTail.trimEnd(), true, 'finalized');
+        thinking.setExpanded(this.expanded);
+        out.push(...thinking.render(innerWidth));
+        thinking.dispose();
       }
       if (step.textTail.trim().length > 0) {
         const message = new AssistantMessageComponent();
@@ -395,6 +404,11 @@ export function formatSubagentActivityPreview(record: SubagentActivityRecord): s
   for (const step of record.steps) {
     lines.push(`── step ${String(step.step)} ──`);
     if (step.retrying !== undefined) lines.push(`${MESSAGE_INDENT}↻ ${step.retrying}`);
+    const thinkingTail = step.thinkingTail ?? '';
+    if (thinkingTail.trim().length > 0) {
+      lines.push(`${MESSAGE_INDENT}~ thinking`);
+      lines.push(...thinkingTail.trimEnd().split('\n'));
+    }
     if (step.textTail.trim().length > 0) lines.push(...step.textTail.trimEnd().split('\n'));
     for (const call of step.toolCalls) {
       lines.push(formatPreviewToolCall(call));
