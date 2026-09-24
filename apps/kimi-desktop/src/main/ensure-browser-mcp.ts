@@ -36,6 +36,68 @@ export interface RegisterBrowserOptions {
   readonly token: string;
 }
 
+/** The whole entry, shared by the file write and the live-daemon call. */
+function browserEntry(url: string, token: string): Record<string, unknown> {
+  return {
+    managedBy: MANAGED_BY,
+    transport: 'http',
+    url,
+    headers: { Authorization: `Bearer ${token}` },
+    // The panel is already open in front of the user, so a slow first call is
+    // acceptable; long pages need time to load.
+    startupTimeoutMs: 20_000,
+    toolTimeoutMs: 120_000,
+  };
+}
+
+/**
+ * Teach a running daemon about the endpoint through its own API.
+ *
+ * The daemon reads `mcp.json` once, at load, and nothing watches the file; its
+ * config store only announces writes made through itself. `kimi web` is
+ * normally already running by the time the desktop starts, so writing the file
+ * alone would leave the browser tool missing until the daemon is restarted.
+ * Creating the server over REST is what makes the tool appear in a live
+ * process; adding an existing name is expected on relaunch, so it is treated as
+ * done.
+ */
+export async function registerBrowserMcpWithServer(options: {
+  /** Origin of the running daemon, e.g. `http://127.0.0.1:3789`. */
+  readonly origin: string;
+  /** Credential the web UI stores and sends as a bearer token. */
+  readonly credential: string;
+  readonly url: string;
+  readonly token: string;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<boolean> {
+  const doFetch = options.fetchImpl ?? fetch;
+  try {
+    const response = await doFetch(`${options.origin}/api/v1/mcp/servers`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${options.credential}`,
+      },
+      body: JSON.stringify({ name: MCP_SERVER_NAME, ...browserEntry(options.url, options.token) }),
+    });
+    if (response.ok) return true;
+    // 400 means the name is already there, which is the normal case on a second
+    // launch: the endpoint is new, so the entry still needs updating.
+    return doFetch(`${options.origin}/api/v1/mcp/servers/${encodeURIComponent(MCP_SERVER_NAME)}`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${options.credential}`,
+      },
+      body: JSON.stringify(browserEntry(options.url, options.token)),
+    }).then((updated) => updated.ok);
+  } catch {
+    // No daemon yet, or it is still starting: the file write still stands, and
+    // a later launch will reach it.
+    return false;
+  }
+}
+
 export function mcpJsonPath(kimiHome: string): string {
   return join(kimiHome, 'mcp.json');
 }
@@ -73,16 +135,7 @@ export function registerBrowserMcp(options: RegisterBrowserOptions): void {
     return;
   }
 
-  servers[MCP_SERVER_NAME] = {
-    managedBy: MANAGED_BY,
-    transport: 'http',
-    url: options.url,
-    headers: { Authorization: `Bearer ${options.token}` },
-    // The panel is already open in front of the user, so a slow first call is
-    // acceptable; long pages need time to load.
-    startupTimeoutMs: 20_000,
-    toolTimeoutMs: 120_000,
-  };
+  servers[MCP_SERVER_NAME] = browserEntry(options.url, options.token);
 
   const next: McpJson = { ...document, mcpServers: servers };
   mkdirSync(dirname(path), { recursive: true });

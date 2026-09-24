@@ -7,7 +7,7 @@ import type { MenuItemConstructorOptions } from 'electron';
 import { BrowserEngine } from './browser-engine';
 import { removeBrowserToken, startBrowserHttp, type BrowserHttpServer } from './browser-http';
 import { RemoteBrowserSurface } from './browser-surface';
-import { registerBrowserMcp, unregisterBrowserMcp } from './ensure-browser-mcp';
+import { registerBrowserMcp, registerBrowserMcpWithServer, unregisterBrowserMcp } from './ensure-browser-mcp';
 import { ensureServer, kimiHome, serverLogPath, stopServer } from './ensure-server';
 import { resolveSeaPath } from './sea-path';
 
@@ -748,6 +748,21 @@ async function startBrowser(): Promise<void> {
     url: browserHost.url,
     token: browserHost.token,
   });
+  // The daemon has already read its config by now, so the file write alone
+  // would not reach it. Do not block startup on this: the panel works without
+  // it, and the agent picks the entry up from the file on the next launch.
+  const credential = readServerToken();
+  if (serverOrigin !== undefined && credential !== undefined) {
+    const registered = await registerBrowserMcpWithServer({
+      origin: serverOrigin,
+      credential,
+      url: browserHost.url,
+      token: browserHost.token,
+    });
+    process.stdout.write(
+      `[kimi-desktop] desktop_browser MCP ${registered ? 'registered with the running daemon' : 'written to mcp.json only (no live daemon)'}\n`,
+    );
+  }
 }
 
 /** Device presets the panel's device toolbar offers. */
