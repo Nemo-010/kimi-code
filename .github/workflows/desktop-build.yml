@@ -138,7 +138,17 @@ jobs:
           KIMI_DESKTOP_NOTARIZE: ${{ (runner.os == 'macOS' && inputs.sign-macos) && 'true' || 'false' }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
-        run: pnpm --filter @moonshot-ai/kimi-desktop run dist
+        # dmgbuild intermittently fails with `hdiutil: couldn't eject ...
+        # Resource busy` on the macOS runners; a retry clears it.
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm --filter @moonshot-ai/kimi-desktop run dist; then
+              exit 0
+            fi
+            echo "packaging attempt $attempt failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
 
       - name: Build unpacked Linux app (for the quick-sharun AppImage)
         if: runner.os == 'Linux'
