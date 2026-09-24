@@ -1,0 +1,30 @@
+name: Continuous Release
+
+# Rolling pre-release at the fixed `continuous` tag, built from main. Calls the
+# same pipeline as a versioned release; the only differences are that it always
+# overwrites the rolling assets and always smoke-tests the result.
+#
+# Note: GitHub only runs `push`/`schedule` triggers for workflows that exist on
+# the default branch, so this starts firing once it is merged to main.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  continuous:
+    name: Continuous build
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/fork-release.yml
+    with:
+      tag: continuous
+      create-release: true
+      allow-overwrite: true
+      verify: true

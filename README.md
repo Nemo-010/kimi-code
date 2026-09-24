@@ -163,11 +163,13 @@ sha256sum -c kimi-code-linux-x64.zip.sha256
 ```
 
 The fork's release pipeline is `.github/workflows/fork-release.yml`
-(`workflow_dispatch`): it builds the native bundles, the desktop installers and
-the pkgforge AppImages, then attaches them to the release tag. The upstream
-`release.yml` is gated to the `MoonshotAI` organisation, so it does not run on
-this fork. Other platforms are produced by the upstream native-bundle workflow;
-this fork publishes only what it builds.
+(`workflow_dispatch` with a `tag`): it builds the native bundles, the desktop
+installers and the pkgforge AppImages, validates the artifact set, attaches them
+to the release tag, and smoke-tests the published assets. A rolling pre-release
+is kept at the fixed `continuous` tag by `.github/workflows/continuous-release.yml`.
+The upstream `release.yml` is gated to the `MoonshotAI` organisation, so it does
+not run on this fork. Other platforms are produced by the upstream native-bundle
+workflow; this fork publishes only what it builds.
 
 ## Desktop app
 
@@ -183,6 +185,18 @@ and the porting notes in [KIMI_DESKTOP.md](./KIMI_DESKTOP.md).
 Linux AppImages for the CLI and the desktop are built with pkgforge-dev's
 `quick-sharun` in `.github/workflows/appimage.yml`; see
 `packaging/appimage/`.
+
+## Maintaining this fork
+
+[`MAINTAIN_AGENTS.md`](./MAINTAIN_AGENTS.md) is the playbook: how to reconcile
+the fork with a moving upstream, what to patch or drop, how to build and test,
+how to package the AppImages, and how to cut a verified release. It routes to
+the scripts in [`tools/fork/`](./tools/fork/README.md):
+
+```sh
+node tools/fork/reconcile.mjs status              # what diverges, what is obsolete, what drifted
+node tools/fork/verify-release.mjs --tag continuous --smoke
+```
 
 ## License
 

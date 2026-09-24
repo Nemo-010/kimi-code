@@ -1,0 +1,149 @@
+{
+  "upstream": {
+    "remote": "upstream",
+    "url": "https://github.com/MoonshotAI/kimi-code.git",
+    "defaultRef": "upstream/main"
+  },
+  "patches": [
+    {
+      "id": "tui-thinking-detail",
+      "match": "show subagent and swarm thinking traces",
+      "title": "TUI: expandable subagent/swarm thinking traces",
+      "purpose": "Surface subagent/swarm thinking and tool detail in the TUI instead of collapsing it.",
+      "anchors": ["tui-transcript"]
+    },
+    {
+      "id": "ci-manual",
+      "match": "allow manual CI runs via workflow_dispatch",
+      "title": "CI: manual workflow_dispatch",
+      "purpose": "Let the fork run CI on demand without a push.",
+      "anchors": []
+    },
+    {
+      "id": "readme-fork",
+      "match": "make the README a fork document",
+      "title": "Docs: fork README",
+      "purpose": "Document what this fork is and how it releases.",
+      "anchors": []
+    },
+    {
+      "id": "fork-notes",
+      "match": "trim fork notes to the essentials",
+      "title": "Docs: trim fork notes",
+      "purpose": "Keep the fork notes short and accurate.",
+      "anchors": []
+    },
+    {
+      "id": "desktop-guide",
+      "match": "add KIMI_DESKTOP.md guide",
+      "title": "Docs: desktop reconstruction guide",
+      "purpose": "Explain how the removed desktop app was recovered and what changed since removal.",
+      "anchors": ["desktop-absent"]
+    },
+    {
+      "id": "desktop-restore",
+      "match": "restore the Electron client",
+      "title": "Desktop app + AppImage release pipeline",
+      "purpose": "Restore apps/kimi-desktop against the current server and ship AppImages.",
+      "anchors": [
+        "kimi-web-command",
+        "server-command-deprecated",
+        "instance-registry",
+        "server-token",
+        "healthz",
+        "web-bundle",
+        "desktop-absent",
+        "release-gating",
+        "only-built-dependencies"
+      ]
+    },
+    {
+      "id": "deps-stable",
+      "match": "bump CI actions and dev tooling",
+      "title": "Deps: current stable CI actions and tooling",
+      "purpose": "Keep CI actions and dev tooling on current stable versions.",
+      "anchors": []
+    }
+  ],
+  "anchors": [
+    {
+      "id": "kimi-web-command",
+      "description": "The desktop starts a server with `kimi web --no-open`.",
+      "checks": [
+        { "type": "grep", "path": "apps/kimi-code/src/cli/sub/web/run.ts", "pattern": "--no-open" }
+      ]
+    },
+    {
+      "id": "server-command-deprecated",
+      "description": "`kimi server run` is only a deprecation shim, not a real command.",
+      "checks": [
+        { "type": "file", "path": "apps/kimi-code/src/cli/sub/web/deprecated-server.ts" }
+      ]
+    },
+    {
+      "id": "instance-registry",
+      "description": "Live servers publish host/port to <KIMI_CODE_HOME>/server/instances/*.json with these keys.",
+      "checks": [
+        { "type": "grep", "path": "packages/kap-server/src/instanceRegistry.ts", "pattern": "server_id" },
+        { "type": "grep", "path": "packages/kap-server/src/instanceRegistry.ts", "pattern": "heartbeat_at" },
+        { "type": "grep", "path": "packages/kap-server/src/instanceRegistry.ts", "pattern": "host_version" },
+        { "type": "grep", "path": "packages/kap-server/src/instanceRegistry.ts", "pattern": "instances" }
+      ]
+    },
+    {
+      "id": "server-token",
+      "description": "The bearer token is persisted at <KIMI_CODE_HOME>/server.token.",
+      "checks": [
+        { "type": "grep", "path": "packages/kap-server/src/services/auth/persistentToken.ts", "pattern": "server\\.token" }
+      ]
+    },
+    {
+      "id": "healthz",
+      "description": "The server exposes GET /api/v1/healthz returning code 0.",
+      "checks": [
+        { "type": "grep", "path": "packages/kap-server/src", "pattern": "api/v1/healthz" }
+      ]
+    },
+    {
+      "id": "web-bundle",
+      "description": "The web UI bundle is committed and understands the desktop query/fragment markers.",
+      "checks": [
+        { "type": "file", "path": "apps/kimi-code/dist-web/index.html" },
+        { "type": "grep", "path": "apps/kimi-code/dist-web/assets", "pattern": "kimi_desktop" },
+        { "type": "grep", "path": "apps/kimi-code/dist-web/assets", "pattern": "location\\.hash" }
+      ]
+    },
+    {
+      "id": "desktop-absent",
+      "description": "Upstream still has no apps/kimi-desktop. If this fails, upstream re-added it and the restore patch may be obsolete.",
+      "scope": "upstream",
+      "checks": [
+        { "type": "absent", "path": "apps/kimi-desktop" }
+      ]
+    },
+    {
+      "id": "release-gating",
+      "description": "Upstream release.yml is gated to the MoonshotAI org, which is why the fork needs fork-release.yml.",
+      "checks": [
+        { "type": "grep", "path": ".github/workflows/release.yml", "pattern": "MoonshotAI" }
+      ]
+    },
+    {
+      "id": "only-built-dependencies",
+      "description": "This fork relies on pnpm reading onlyBuiltDependencies from pnpm-workspace.yaml (pnpm 10+).",
+      "scope": "fork",
+      "checks": [
+        { "type": "grep", "path": "pnpm-workspace.yaml", "pattern": "onlyBuiltDependencies" },
+        { "type": "grep", "path": "package.json", "pattern": "\"packageManager\": \"pnpm@1[0-9]" }
+      ]
+    },
+    {
+      "id": "tui-transcript",
+      "description": "The TUI transcript/event plumbing the thinking-detail patch extends.",
+      "checks": [
+        { "type": "grep", "path": "apps/kimi-code/src/tui", "pattern": "subagent" },
+        { "type": "grep", "path": "apps/kimi-code/src/tui", "pattern": "transcript" }
+      ]
+    }
+  ]
+}
