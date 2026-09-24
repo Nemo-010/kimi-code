@@ -313,7 +313,7 @@ ipcRenderer.on('kimi-browser:surface-request', (event, payload: unknown) => {
 const kimiDesktop = {
   platform: process.platform,
   version: process.versions.electron,
-  setTheme: kimiBrowser.setTheme,
+  setTheme: (theme: unknown): boolean => kimiBrowser.setTheme(theme),
   /** Open or close the Terminal panel; bound to Ctrl/Cmd+` in the main process. */
   toggleTerminal: (): void => {
     ipcRenderer.send('kimi-terminal:toggle-request', {});

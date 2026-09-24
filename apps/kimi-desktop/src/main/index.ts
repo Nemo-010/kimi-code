@@ -548,10 +548,14 @@ function installBridge(): void {
     mainWindow.focus();
   });
   ipcMain.on('kimi-desktop:log', (_event, payload: unknown) => {
-    const entry = payload as { level?: unknown; message?: unknown } | null;
-    process.stdout.write(
-      `[kimi-desktop] renderer ${String(entry?.level ?? 'info')}: ${String(entry?.message ?? '')}\n`,
-    );
+    const entry =
+      typeof payload === 'object' && payload !== null
+        ? (payload as { level?: unknown; message?: unknown })
+        : {};
+    // Narrowed to strings so the log line cannot print `[object Object]`.
+    const level = typeof entry.level === 'string' ? entry.level : 'info';
+    const message = typeof entry.message === 'string' ? entry.message : '';
+    process.stdout.write(`[kimi-desktop] renderer ${level}: ${message}\n`);
   });
   ipcMain.on('kimi-desktop:menu-action', (_event, action: unknown) => {
     if (typeof action === 'string') send('kimi-desktop:menu-action', action);
