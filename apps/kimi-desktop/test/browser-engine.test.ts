@@ -10,7 +10,7 @@ class FakeSurface implements BrowserSurface {
   constructor(readonly id: string, private readonly evaluateImpl: (script: string) => unknown = () => ({})) {}
 
   url(): string {
-    return this.state.url;
+    return this.loaded.length > 0 ? this.loaded : this.state.url;
   }
   title(): string {
     return this.state.title;
@@ -24,8 +24,10 @@ class FakeSurface implements BrowserSurface {
   canGoForward(): boolean {
     return this.state.forward;
   }
+  loaded = '';
   async loadURL(url: string): Promise<void> {
     this.calls.push(`loadURL:${url}`);
+    this.loaded = url;
     this.state = { ...this.state, url };
   }
   goBack(): void {
@@ -74,11 +76,34 @@ function page(overrides: Record<string, unknown> = {}): Record<string, unknown> 
   };
 }
 
-function makeEngine(surface: BrowserSurface): { engine: BrowserEngine; host: BrowserHost; shown: string[] } {
+function makeEngine(
+  surface: BrowserSurface,
+  options: { canCreate?: boolean } = {},
+): {
+  engine: BrowserEngine;
+  host: BrowserHost;
+  shown: string[];
+  closed: string[];
+  live: BrowserSurface[];
+} {
   const shown: string[] = [];
+  const closed: string[] = [];
+  const live: BrowserSurface[] = [surface];
   const host: BrowserHost = {
-    surfaces: () => [surface],
+    surfaces: () => live,
     showPanel: (tabId) => shown.push(tabId),
+    createTab: (url) => {
+      if (options.canCreate === false) return Promise.reject(new Error('too many tabs'));
+      const created = new FakeSurface('t2');
+      created.loaded = url;
+      live.push(created);
+      return Promise.resolve(created);
+    },
+    closeTab: (tabId) => {
+      closed.push(tabId);
+      const index = live.findIndex((s) => s.id === tabId);
+      if (index >= 0) live.splice(index, 1);
+    },
     deviceProfiles: () => [
       { profileId: 'desktop-1280', label: 'Desktop', width: 1280, height: 800, deviceScaleFactor: 1, mobile: false, touch: false },
     ],
@@ -86,7 +111,7 @@ function makeEngine(surface: BrowserSurface): { engine: BrowserEngine; host: Bro
     downloads: () => [],
     notify: () => undefined,
   };
-  return { engine: new BrowserEngine(host), host, shown };
+  return { engine: new BrowserEngine(host), host, shown, closed, live };
 }
 
 function request(partial: Partial<BrowserRequest> & { operation: BrowserRequest['operation'] }): BrowserRequest {
@@ -243,6 +268,80 @@ describe('BrowserEngine', () => {
     expect(response.ok).toBe(false);
     if (response.ok) throw new Error('expected a failure');
     expect(response.error.code).toBe('BROWSER_USER_TAKEOVER');
+  });
+
+  it('actually opens a tab for browser.create_tab', async () => {
+    // This used to route through navigate(), which requires an existing tab,
+    // so the agent's first move always failed with TAB_NOT_FOUND.
+    const { engine, shown, live } = makeEngine(new FakeSurface('t1'));
+    const response = await engine.run(request({ operation: 'browser.create_tab', url: 'https://example.com' }));
+    expect(response.ok).toBe(true);
+    if (!response.ok) throw new Error('expected success');
+    expect(live).toHaveLength(2);
+    expect(response['tab']).toMatchObject({ tabId: 't2', url: 'https://example.com' });
+    // The panel is shown on the tab that was just created.
+    expect(shown).toStrictEqual(['t2']);
+  });
+
+  it('opens a blank tab when create_tab is called without a url', async () => {
+    const { engine } = makeEngine(new FakeSurface('t1'));
+    const response = await engine.run(request({ operation: 'browser.create_tab' }));
+    expect(response.ok).toBe(true);
+    if (!response.ok) throw new Error('expected success');
+    expect(response['tab']).toMatchObject({ url: 'about:blank' });
+  });
+
+  it('reports a failure when a tab cannot be opened', async () => {
+    const { engine } = makeEngine(new FakeSurface('t1'), { canCreate: false });
+    const response = await engine.run(request({ operation: 'browser.create_tab', url: 'https://example.com' }));
+    expect(response.ok).toBe(false);
+    if (response.ok) throw new Error('expected a failure');
+    expect(response.error.code).toBe('INVALID_REQUEST');
+  });
+
+  it('tears the tab down on browser.close_tab', async () => {
+    // Closing used to only forget the id, leaving the page running.
+    const { engine, closed, live } = makeEngine(new FakeSurface('t1'));
+    const response = await engine.run(request({ operation: 'browser.close_tab', tabId: 't1' }));
+    expect(response.ok).toBe(true);
+    expect(closed).toStrictEqual(['t1']);
+    expect(live).toHaveLength(0);
+  });
+
+  it('keeps the tab open on browser.release_tab', async () => {
+    const { engine, closed, live } = makeEngine(new FakeSurface('t1'));
+    const response = await engine.run(request({ operation: 'browser.release_tab', tabId: 't1' }));
+    expect(response.ok).toBe(true);
+    expect(closed).toStrictEqual([]);
+    expect(live).toHaveLength(1);
+  });
+
+  it('forgets the snapshots of a closed tab, so its refs cannot be reused', async () => {
+    const surface = new FakeSurface('t1', () => page());
+    const { engine } = makeEngine(surface);
+    const snapshot = await engine.run(request({ operation: 'page.elements.snapshot' }));
+    if (!snapshot.ok) throw new Error('expected success');
+    const snapshotId = (snapshot['elements'] as { snapshotId: string }).snapshotId;
+    await engine.run(request({ operation: 'browser.close_tab', tabId: 't1' }));
+    // The tab is gone, so that is the first thing reported; either way the old
+    // ref must not resolve to a live element.
+    const response = await engine.run(
+      request({ operation: 'page.element.click', snapshotId, ref: 'e1', tabId: 't1' }),
+    );
+    expect(response.ok).toBe(false);
+    if (response.ok) throw new Error('expected a failure');
+    expect(['TAB_NOT_FOUND', 'SNAPSHOT_EXPIRED']).toContain(response.error.code);
+  });
+
+  it('expires a snapshot taken in a tab that is still open', async () => {
+    const surface = new FakeSurface('t1', () => page());
+    const { engine } = makeEngine(surface);
+    const response = await engine.run(
+      request({ operation: 'page.element.click', snapshotId: 'never-issued', ref: 'e1' }),
+    );
+    expect(response.ok).toBe(false);
+    if (response.ok) throw new Error('expected a failure');
+    expect(response.error.code).toBe('SNAPSHOT_EXPIRED');
   });
 
   it('lists the device profiles the panel offers', async () => {

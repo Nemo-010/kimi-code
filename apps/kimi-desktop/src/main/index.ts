@@ -551,6 +551,32 @@ function readRegisteredBrowserMcp(home: string): boolean {
   }
 }
 
+/** Ask the renderer to create a new masked <webview> and return its tab id. */
+function rendererCreateTab(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (mainWindow === null || mainWindow.isDestroyed()) {
+      reject(new Error('The window is gone.'));
+      return;
+    }
+    surfaceCallCounter += 1;
+    const requestId = `t${surfaceCallCounter}`;
+    pendingSurfaceCalls.set(requestId, {
+      resolve: (value) => {
+        if (typeof value === 'string' && value.length > 0) resolve(value);
+        else reject(new Error('The window did not return a tab id.'));
+      },
+      reject,
+    });
+    mainWindow.webContents.send('kimi-browser:create-tab', { requestId });
+    setTimeout(() => {
+      const pending = pendingSurfaceCalls.get(requestId);
+      if (pending === undefined) return;
+      pendingSurfaceCalls.delete(requestId);
+      reject(new Error('The window did not create a tab in time.'));
+    }, 15_000);
+  });
+}
+
 /** Ask the renderer to run an operation against one of its <webview> surfaces. */
 function rendererTransport(tabId: string, request: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -580,6 +606,23 @@ async function startBrowser(): Promise<void> {
       if (mainWindow !== null && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
         mainWindow.focus();
+      }
+    },
+    createTab: async (url) => {
+      // The renderer owns the <webview>, so it makes the element and its id
+      // comes back; the surface is registered here so the engine can drive it.
+      const browserId = await rendererCreateTab();
+      const surface = new RemoteBrowserSurface(browserId, { request: rendererTransport }, () => undefined);
+      surfaces.set(browserId, surface);
+      await surface.loadURL(url);
+      return surface;
+    },
+    closeTab: (tabId) => {
+      surfaces.delete(tabId);
+      // The <webview> itself lives in the renderer; ask it to tear the element
+      // down so the page stops running rather than just going unreferenced.
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('kimi-browser:close-tab', { browserId: tabId });
       }
     },
     deviceProfiles: () => DEVICE_PROFILES,

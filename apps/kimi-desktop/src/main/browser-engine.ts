@@ -42,6 +42,17 @@ export interface BrowserHost {
   surfaces(): readonly BrowserSurface[];
   /** Make the Browser panel visible and the given tab the active one. */
   showPanel(tabId: string): void;
+  /**
+   * Open a new tab and return it. `browser.create_tab` is the agent's entry
+   * point, so it cannot require an existing tab the way navigation does.
+   */
+  createTab(url: string): Promise<BrowserSurface>;
+  /**
+   * Tear a tab down. `browser.close_tab` has to reach the renderer's
+   * `<webview>`, or the tab keeps running and loading pages after the agent
+   * believes it closed it.
+   */
+  closeTab(tabId: string): void;
   /** Device-profile prese ts the panel offers. */
   deviceProfiles(): readonly DeviceProfile[];
   history(): readonly HistoryEntry[];
@@ -253,6 +264,13 @@ export class BrowserEngine {
     return surface.evaluate<CollectedPage>(COLLECT_ELEMENTS_SCRIPT);
   }
 
+  /** Drop the snapshots for a tab that no longer exists. */
+  private forgetSnapshots(tabId: string): void {
+    for (const [id, snapshot] of this.snapshots) {
+      if (snapshot.tabId === tabId) this.snapshots.delete(id);
+    }
+  }
+
   private snapshotFor(surface: BrowserSurface, page: CollectedPage): Snapshot {
     const snapshot: Snapshot = {
       id: nextId('s'),
@@ -306,6 +324,7 @@ export class BrowserEngine {
       }
 
       case 'browser.release_tab': {
+        // Hand a tab back to the user: it stays open, the agent stops steering.
         const surface = this.requireSurface(request.tabId);
         if (this.isResponse(surface)) return surface;
         if (this.activeTabId === surface.id) this.activeTabId = undefined;
@@ -314,10 +333,14 @@ export class BrowserEngine {
       }
 
       case 'browser.close_tab': {
+        // Close it for real. Releasing without tearing down left the page
+        // running with no way for anyone to reach or stop it.
         const surface = this.requireSurface(request.tabId);
         if (this.isResponse(surface)) return surface;
         const tabId = surface.id;
         if (this.activeTabId === tabId) this.activeTabId = undefined;
+        this.forgetSnapshots(tabId);
+        this.host.closeTab(tabId);
         this.host.notify();
         return browserOk({ tab: { tabId } });
       }
@@ -340,8 +363,10 @@ export class BrowserEngine {
 
       case 'tab.navigate':
       case 'tab.search':
-      case 'browser.create_tab':
         return this.navigate(operation, request);
+
+      case 'browser.create_tab':
+        return this.createTab(request);
 
       case 'tab.go_back': {
         const surface = this.requireSurface(request.tabId);
@@ -482,19 +507,51 @@ export class BrowserEngine {
     return !surface.loading();
   }
 
+  /**
+   * Open a tab, navigate it, and make it the one the panel shows.
+   *
+   * A URL is optional: an empty tab is a legitimate starting point for the
+   * agent, which then navigates or searches in it.
+   */
+  private async createTab(request: BrowserRequest): Promise<BrowserResponse> {
+    const raw = typeof request.url === 'string' ? request.url.trim() : '';
+    const target = raw.length === 0 ? 'about:blank' : this.resolveUrl('tab.navigate', raw);
+    if (target.length > MAX_URL_LENGTH) {
+      return browserError('INVALID_REQUEST', 'URL is too long.');
+    }
+    let surface: BrowserSurface;
+    try {
+      surface = await this.host.createTab(target);
+    } catch (error) {
+      // The panel has a hard cap on live surfaces. There is no error code for
+      // "too many tabs" in the bundle's vocabulary, and inventing one would
+      // render as a blank error, so this is reported as a failed request.
+      const message = error instanceof Error ? error.message : String(error);
+      return browserError('INVALID_REQUEST', message);
+    }
+    this.activeTabId = surface.id;
+    this.host.showPanel(surface.id);
+    await this.waitForLoad(surface, DEFAULT_TIMEOUT_MS);
+    this.host.notify();
+    return browserOk({ tab: this.tabState(surface) });
+  }
+
+  /** Turn whatever the agent typed into an absolute URL. */
+  private resolveUrl(operation: BrowserOperation, raw: string): string {
+    if (operation === 'tab.search') {
+      return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
+    }
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) return raw;
+    if (/^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(raw)) return `https://${raw}`;
+    return `https://www.google.com/search?q=${encodeURIComponent(raw)}`;
+  }
+
   private async navigate(operation: BrowserOperation, request: BrowserRequest): Promise<BrowserResponse> {
     const raw = operation === 'tab.search' ? request.query : request.url;
     const url = typeof raw === 'string' ? raw.trim() : '';
     if (url.length === 0) return browserError('INVALID_REQUEST', 'A url or query is required.');
 
-    const target =
-      operation === 'tab.search'
-        ? `https://www.google.com/search?q=${encodeURIComponent(url)}`
-        : /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)
-          ? url
-          : /^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(url)
-            ? `https://${url}`
-            : `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+    const target = this.resolveUrl(operation, url);
     if (target.length > MAX_URL_LENGTH) {
       return browserError('INVALID_REQUEST', 'URL is too long.');
     }

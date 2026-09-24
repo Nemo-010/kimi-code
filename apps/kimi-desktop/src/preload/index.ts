@@ -66,6 +66,7 @@ type Surface = HTMLElement & {
 };
 
 const surfaces = new Map<string, Surface>();
+let surfaceCounter = 0;
 
 function send(channel: string, payload: Record<string, unknown>): void {
   ipcRenderer.send(channel, payload);
@@ -275,6 +276,28 @@ const kimiBrowserSurface = {
     return handler(request as Record<string, unknown>);
   },
 };
+
+// The agent asked for a new tab: make the element here, where the DOM is, and
+// answer with its id so the main process can register a surface for it.
+ipcRenderer.on('kimi-browser:create-tab', (event, payload: unknown) => {
+  const { requestId } = (payload ?? {}) as { requestId?: unknown };
+  if (typeof requestId !== 'string') return;
+  let browserId = '';
+  if (surfaces.size < MAX_BROWSERS) {
+    browserId = `t${++surfaceCounter}`;
+    createSurface(browserId);
+  }
+  event.sender.send('kimi-browser:surface-response', { requestId, value: browserId });
+});
+
+// The agent closed a tab; the element has to go, not just its id.
+ipcRenderer.on('kimi-browser:close-tab', (_event, payload: unknown) => {
+  const browserId = asId((payload as { browserId?: unknown } | null)?.browserId);
+  if (browserId !== null) {
+    handlers.delete(browserId);
+    destroySurface(browserId);
+  }
+});
 
 ipcRenderer.on('kimi-browser:surface-request', (event, payload: unknown) => {
   if (typeof payload !== 'object' || payload === null) return;
