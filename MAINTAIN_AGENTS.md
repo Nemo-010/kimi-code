@@ -28,6 +28,9 @@ pnpm fork:status          # or: node tools/fork/reconcile.mjs status
 | `readme-fork`, `fork-notes`, `desktop-guide` | Documentation of the fork. |
 | `desktop-restore` | The Electron desktop client (`apps/kimi-desktop`), its release workflow, and the pkgforge AppImage packaging. |
 | `deps-stable` | CI actions and dev tooling on current stable. |
+| `fork-tooling` | `tools/fork/*` and this document. |
+| `desktop-hardening` | Reconnect serialisation and space-free installer names. |
+| `thinking-detail-test` | Regression test for the TUI thinking-detail patch. |
 
 The authoritative list, with the upstream assumptions each patch relies on
 ("anchors"), is [`tools/fork/fork-manifest.json`](./tools/fork/fork-manifest.json).
@@ -169,8 +172,9 @@ node tools/fork/verify-release.mjs --tag v2.1.0-fork.2 --smoke
 ```
 
 `--smoke` downloads the host-arch native zip and both AppImages, verifies the
-`.sha256`, extracts the AppImages with `--appimage-extract`, and runs the CLI
-and the desktop's bundled backend with `--version`.
+`.sha256`, extracts the AppImages with `--appimage-extract`, runs the CLI and
+the desktop's bundled backend with `--version`, and launches the desktop under
+`xvfb-run` until it reports that it connected to its server.
 
 ### Cutting a versioned release
 
@@ -223,7 +227,10 @@ The GitHub Actions are pinned to major tags; keep them on current stable
 
 - **Nix hash.** `flake.nix` uses `pkgs.fetchPnpmDeps`; the `hash` must be
   refreshed whenever `pnpm-lock.yaml` changes. `nix-build.yml` runs on PRs and
-  reports the correct `got:` hash. Nix is not available in every environment.
+  reports the correct `got:` hash; locally, run `nix build .#kimi-code` and copy
+  the `got:` value from the error into `flake.nix`. Nix is not available in
+  every environment, so this can stay stale until someone with Nix fixes it —
+  it does not affect the release pipeline.
 - **Web bundle.** `apps/kimi-code/dist-web` is committed (synced from the
   code-app repo). Packaging runs `node apps/kimi-code/scripts/check-web-assets.mjs`
   instead of building it; if the bundle is missing, that check fails.

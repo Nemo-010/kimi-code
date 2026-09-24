@@ -63,6 +63,27 @@
       "title": "Deps: current stable CI actions and tooling",
       "purpose": "Keep CI actions and dev tooling on current stable versions.",
       "anchors": []
+    },
+    {
+      "id": "fork-tooling",
+      "match": "reconciliation tooling, release guards",
+      "title": "Fork: reconciliation tooling and release guards",
+      "purpose": "tools/fork/* plus MAINTAIN_AGENTS.md: detect upstream drift, validate artifacts, verify releases.",
+      "anchors": []
+    },
+    {
+      "id": "desktop-hardening",
+      "match": "avoid a reconnect race",
+      "title": "Desktop: reconnect serialisation and artifact naming",
+      "purpose": "Serialise connect attempts and name desktop installers without spaces.",
+      "anchors": []
+    },
+    {
+      "id": "thinking-detail-test",
+      "match": "pin the fork's subagent/swarm thinking detail",
+      "title": "TUI: thinking-detail regression test",
+      "purpose": "Pin the behaviour the tui-thinking-detail patch ships.",
+      "anchors": ["tui-transcript"]
     }
   ],
   "anchors": [

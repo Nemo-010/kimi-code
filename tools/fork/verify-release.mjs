@@ -97,6 +97,7 @@ async function guiSmoke(squash, dir) {
   const child = spawn('xvfb-run', ['-a', join(squash, 'AppRun'), '--no-sandbox'], {
     env: { ...process.env, KIMI_CODE_HOME: home, ELECTRON_DISABLE_SANDBOX: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
   });
   let output = '';
   child.stdout.on('data', (chunk) => {
@@ -115,7 +116,11 @@ async function guiSmoke(squash, dir) {
     if (child.exitCode !== null) break;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  child.kill('SIGKILL');
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
   return [name, connected, connected ? output.split('\n').find((l) => l.includes('connected to'))?.trim() ?? '' : output.slice(-400)];
 }
 
