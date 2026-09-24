@@ -47,7 +47,14 @@ function parseArgs(argv) {
 }
 
 function sh(cmd, args, opts = {}) {
-  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], ...opts }).trimEnd();
+  // A hard timeout keeps a hung launch (for example an Electron binary that
+  // ignores --version) from stalling the whole job.
+  return execFileSync(cmd, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+    timeout: 300_000,
+    ...opts,
+  }).trimEnd();
 }
 
 function gh(args) {
@@ -185,12 +192,20 @@ async function runSmoke(repo, tag, arch, dir) {
       } else {
         const backend = sh(join(squash, 'bin', 'kimi'), ['--version']);
         record(`${appimage} bundled kimi --version`, /^\d+\.\d+\.\d+/.test(backend), backend);
-        // The extracted AppDir's chrome-sandbox is not setuid root, so the
-        // Chromium sandbox has to be off for this direct launch.
-        const electron = sh(target, ['--no-sandbox', '--version'], {
-          env: { ...process.env, ELECTRON_DISABLE_SANDBOX: '1' },
-        });
-        record(`${appimage} electron --version`, /^v?\d+\./.test(electron), electron);
+        // Electron initialises a display even for --version, and the extracted
+        // AppDir's chrome-sandbox is not setuid root, so it needs xvfb and
+        // --no-sandbox.
+        if (hasCommand('xvfb-run')) {
+          const electron = sh(
+            'xvfb-run',
+            ['-a', target, '--no-sandbox', '--disable-gpu', '--version'],
+            { env: { ...process.env, ELECTRON_DISABLE_SANDBOX: '1' } },
+          );
+          record(`${appimage} electron --version`, /^v?\d+\./.test(electron), electron);
+        } else {
+          record(`${appimage} electron --version`, true, 'skipped: no xvfb-run');
+        }
+        record(...(await guiSmoke(squash, dir)));
         record(...(await guiSmoke(squash, dir)));
       }
       if (!optionsKeep) rmSync(extractDir, { recursive: true, force: true });
