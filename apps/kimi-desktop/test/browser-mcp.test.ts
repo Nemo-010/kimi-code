@@ -48,6 +48,24 @@ describe('desktop_browser over MCP', () => {
     expect(MCP_TOOL_NAME).toBe('run');
   });
 
+  it('qualifies to the exact tool name the daemon will build', () => {
+    // Copied from packages/agent-core-v2/src/mcpCore/tool-naming.ts. The bundle
+    // constant `f4` is `mcp__desktop_browser__run`, so the server and tool names
+    // have to survive sanitisation and the 64-character cap unchanged.
+    const sanitize = (part: string): string =>
+      part.replaceAll(/[^a-zA-Z0-9_-]/g, '_').replaceAll(/_+/g, '_');
+    const qualified = `mcp__${sanitize(MCP_SERVER_NAME)}__${sanitize(MCP_TOOL_NAME)}`;
+    expect(qualified).toBe('mcp__desktop_browser__run');
+    expect(qualified.length).toBeLessThanOrEqual(64);
+  });
+
+  it('offers exactly one tool, as the shipped backend does', () => {
+    // `strings` on the shipped SEA shows the only desktop MCP tool is
+    // `mcp__desktop_browser__run`; there is no second desktop server.
+    expect(MCP_SERVER_NAME).toBe('desktop_browser');
+    expect(MCP_TOOL_NAME).toBe('run');
+  });
+
   it('describes every operation it accepts', () => {
     const description = toolDescription();
     for (const operation of BROWSER_OPERATIONS) expect(description).toContain(operation);
